@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta http-equiv="Content-Type" content="text/html;charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Professional Services Automation</title>
+
+    <!-- SAP Fiori launchpad (sandbox): tiles depend on the role of the logged-in user -->
+    <script>
+        (function () {
+            // small synchronous GET (needed before the launchpad starts)
+            var get = function (url, fallback) {
+                try {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open("GET", url, false);
+                    xhr.setRequestHeader("Accept", "application/json");
+                    xhr.send();
+                    if (xhr.status === 200) return JSON.parse(xhr.responseText);
+                } catch (e) { /* ignore */ }
+                return fallback;
+            };
+
+            // who is logged in (XSUAA login via approuter) + KPI numbers for the tiles
+            var me = get("/odata/v4/psa/whoAmI()", { name: "User", email: "", isAdmin: false });
+            var kpi = get("/odata/v4/psa/kpis()", {});
+            var n = function (value) { return value === null || value === undefined ? "" : String(value); };
+
+            var applications = {};
+            var tiles = [];
+
+            // one app (navigation target) + its launchpad tile (icon + KPI number)
+            var addApp = function (intent, component, title, subtitle, icon, number, info, state) {
+                applications[intent] = {
+                    title: title,
+                    description: subtitle,
+                    additionalInformation: "SAPUI5.Component=psa." + component,
+                    applicationType: "URL",
+                    url: "./" + component + "/webapp",
+                    navigationMode: "embedded"
+                };
+                tiles.push({
+                    id: "psa_tile_" + component,
+                    title: title,
+                    size: "1x1",
+                    tileType: "sap.ushell.ui.tile.DynamicTile",
+                    properties: {
+                        chipId: "psa_chip_" + component,
+                        title: title,
+                        subtitle: subtitle,
+                        info: info,
+                        icon: icon,
+                        numberValue: n(number),
+                        numberState: state || "Neutral",
+                        targetURL: "#" + intent
+                    }
+                });
+            };
+
+            // start page of the launchpad (role-aware, see app/home): no tile, it is "Home"
+            applications["PSA-home"] = {
+                title: "Home",
+                additionalInformation: "SAPUI5.Component=psa.home",
+                applicationType: "URL",
+                url: "./home/webapp",
+                navigationMode: "embedded"
+            };
+
+            addApp("Timesheet-manage", "timesheets", "My Timesheets", "Log hours and submit",
+                "sap-icon://time-entry-request", kpi.myOpenTimesheets, "Open timesheets",
+                kpi.myOpenTimesheets > 0 ? "Critical" : "Good");
+
+            if (me.isAdmin) {
+                addApp("Timesheet-approve", "approvals", "Approve Timesheets", "Approve or reject",
+                    "sap-icon://approvals", kpi.pendingApprovals, "Waiting for you",
+                    kpi.pendingApprovals > 0 ? "Critical" : "Good");
+                addApp("Project-manage", "projects", "Projects", "Budget, milestones, tasks",
+                    "sap-icon://project-definition-triangle-2", kpi.activeProjects, "Active projects");
+                addApp("Invoice-manage", "invoices", "Billing Workbench", "Generate, issue, paid",
+                    "sap-icon://receipt", kpi.unbilledHours, "Unbilled hours",
+                    kpi.overdueAmount > 0 ? "Error" : "Neutral");
+                addApp("Client-manage", "clients", "Clients", "Master data",
+                    "sap-icon://customer", kpi.clients, "Clients");
+                addApp("Employee-manage", "employees", "Employees", "Master data",
+                    "sap-icon://employee", kpi.employees, "Active employees");
+            }
+
+            // used after start-up (see below)
+            window.psaTiles = tiles;
+
+            var names = String(me.name || me.email || "User").split(" ");
+
+            window["sap-ushell-config"] = {
+                defaultRenderer: "fiori2",
+                services: {
+                    // real user in the shell header instead of "Default User"
+                    Container: {
+                        adapter: {
+                            config: {
+                                id: me.email || me.user || "USER",
+                                firstName: names[0],
+                                lastName: names.slice(1).join(" "),
+                                fullName: me.name || me.email,
+                                email: me.email
+                            }
+                        }
+                    },
+                    EndUserFeedback: { config: { enabled: false } }
+                },
+                renderers: {
+                    fiori2: {
+                        componentData: {
+                            config: {
+                                rootIntent: "PSA-home",          // open our home page instead of the tile grid
+                                enableNotificationsUI: false,
+                                enableNotifications: false,
+                                enableSearch: false,
+                                enablePersonalization: false,
+                                enableSetTheme: true,
+                                enableSetLanguage: true
+                            }
+                        }
+                    }
+                },
+                applications: applications
+            };
+        }());
+    </script>
+
+    <script id="sap-ushell-bootstrap" src="https://sapui5.hana.ondemand.com/1.153.0/test-resources/sap/ushell/bootstrap/sandbox.js"></script>
+
+    <script id="sap-ui-bootstrap"
+        src="https://sapui5.hana.ondemand.com/1.153.0/resources/sap-ui-core.js"
+        data-sap-ui-libs="sap.ui.core, sap.ushell, sap.fe.templates"
+        data-sap-ui-compat-version="edge"
+        data-sap-ui-theme="sap_horizon"
+        data-sap-ui-async="true"
+        data-sap-ui-frame-options="allow"
+        data-sap-ui-preload="async"></script>
+
+    <script>
+        sap.ui.getCore().attachInit(function () {
+
+            // The sandbox puts one tile per application into its "generated group" and adds
+            // demo groups ("Sample Applications"). Keep only the generated group and give it
+            // our tiles with icon + KPI number.
+            var services = window["sap-ushell-config"].services || {};
+            ["FlpLaunchPage", "LaunchPage"].forEach(function (name) {
+                var config = services[name] && services[name].adapter && services[name].adapter.config;
+                if (config && config.groups) {
+                    config.groups = config.groups.filter(function (group) {
+                        return group.id === "sap_ushell_generated_group_id";
+                    });
+                    config.groups.forEach(function (group) {
+                        group.title = "Professional Services Automation";
+                        group.isGroupLocked = true;
+                        group.tiles = window.psaTiles;
+                    });
+                }
+            });
+
+            // "Sign Out" in the user menu logs out of XSUAA via the approuter
+            sap.ushell.Container.registerLogout(function () {
+                window.location.href = "/do/logout";
+                return new Promise(function () {});   // keep waiting: the browser is leaving the page
+            });
+
+            sap.ushell.Container.createRenderer("fiori2", true).then(function (renderer) {
+                renderer.placeAt("content");
+            });
+        });
+    </script>
+</head>
+<body class="sapUiBody sapUiSizeCompact" id="content"></body>
+</html>

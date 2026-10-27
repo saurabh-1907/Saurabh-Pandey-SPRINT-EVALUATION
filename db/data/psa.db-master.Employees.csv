@@ -1,0 +1,6 @@
+ID,nameFirst,nameLast,email,phoneNumber,jobTitle,Currency_code,hourlyRate,isManager,isActive,manager_ID
+20000000-0000-4000-8000-000000000001,Meera,Iyer,meera.iyer@psa-demo.com,+919800000001,Project Manager,USD,65.00,true,true,
+20000000-0000-4000-8000-000000000002,Arjun,Rao,arjun.rao@psa-demo.com,+919800000002,Engineering Manager,USD,70.00,true,true,
+20000000-0000-4000-8000-000000000003,Rahul,Sharma,rahul.sharma@psa-demo.com,+919800000003,SAP Consultant,USD,40.00,false,true,20000000-0000-4000-8000-000000000001
+20000000-0000-4000-8000-000000000004,Priya,Verma,priya.verma@psa-demo.com,+919800000004,Software Engineer,USD,38.00,false,true,20000000-0000-4000-8000-000000000002
+20000000-0000-4000-8000-000000000005,Kiran,Das,kiran.das@psa-demo.com,+919800000005,Business Analyst,USD,35.00,false,false,20000000-0000-4000-8000-000000000001

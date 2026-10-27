@@ -1,0 +1,155 @@
+{
+  "_version": "1.89.0",
+  "sap.app": {
+    "id": "psa.projects",
+    "type": "application",
+    "title": "Projects",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "dataSources": {
+      "mainService": {
+        "uri": "/odata/v4/psa/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "flexEnabled": false,
+    "dependencies": {
+      "minUI5Version": "1.153.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.fe.templates": {}
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
+    "models": {
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true
+        }
+      }
+    },
+    "routing": {
+      "config": {},
+      "routes": [
+        {
+          "pattern": ":?query:",
+          "name": "ProjectSrvList",
+          "target": "ProjectSrvList"
+        },
+        {
+          "pattern": "ProjectSrv({key}):?query:",
+          "name": "ProjectSrvObjectPage",
+          "target": "ProjectSrvObjectPage"
+        },
+        {
+          "pattern": "ProjectSrv({key})/MILESTONES({key2}):?query:",
+          "name": "MilestoneSrvObjectPage",
+          "target": "MilestoneSrvObjectPage"
+        }
+      ],
+      "targets": {
+        "ProjectSrvList": {
+          "type": "Component",
+          "id": "ProjectSrvList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "contextPath": "/ProjectSrv",
+              "variantManagement": "Page",
+              "initialLoad": "Enabled",
+              "navigation": {
+                "ProjectSrv": {
+                  "detail": {
+                    "route": "ProjectSrvObjectPage"
+                  }
+                }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable",
+                    "enableExport": false,
+                    "selectionMode": "Multi"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ProjectSrvObjectPage": {
+          "type": "Component",
+          "id": "ProjectSrvObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "editableHeaderContent": false,
+              "contextPath": "/ProjectSrv",
+              "navigation": {
+                "MILESTONES": {
+                  "detail": {
+                    "route": "MilestoneSrvObjectPage"
+                  }
+                }
+              },
+              "controlConfiguration": {}
+            }
+          }
+        },
+        "MilestoneSrvObjectPage": {
+          "type": "Component",
+          "id": "MilestoneSrvObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "editableHeaderContent": false,
+              "contextPath": "/ProjectSrv/MILESTONES",
+              "controlConfiguration": {
+                "TASKS/@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable",
+                    "creationMode": {
+                      "name": "Inline",
+                      "createAtEnd": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
+  },
+  "sap.fe": {
+    "app": {
+      "enableLazyLoading": true
+    }
+  }
+}

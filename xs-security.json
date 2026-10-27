@@ -1,0 +1,53 @@
+{
+  "xsappname": "psa-application",
+  "tenant-mode": "dedicated",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.Admin",
+      "description": "Admin: master data, projects, approvals, invoices"
+    },
+    {
+      "name": "$XSAPPNAME.User",
+      "description": "User: own timesheets"
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "Admin",
+      "description": "PSA Admin",
+      "scope-references": [
+        "$XSAPPNAME.Admin"
+      ]
+    },
+    {
+      "name": "User",
+      "description": "PSA User",
+      "scope-references": [
+        "$XSAPPNAME.User"
+      ]
+    }
+  ],
+  "role-collections": [
+    {
+      "name": "PSA_Admin",
+      "description": "PSA Admin",
+      "role-template-references": [
+        "$XSAPPNAME.Admin"
+      ]
+    },
+    {
+      "name": "PSA_User",
+      "description": "PSA User",
+      "role-template-references": [
+        "$XSAPPNAME.User"
+      ]
+    }
+  ],
+  "oauth2-configuration": {
+    "redirect-uris": [
+      "https://*.applicationstudio.cloud.sap/**",
+      "https://*.hana.ondemand.com/**",
+      "http://localhost:5000/**"
+    ]
+  }
+}
