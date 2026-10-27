@@ -6,87 +6,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Professional Services Automation</title>
 
-    <!-- SAP Fiori launchpad (sandbox): tiles depend on the role of the logged-in user -->
+    <!-- SAP Fiori launchpad (sandbox): the apps depend on the role of the logged-in user -->
     <script>
         (function () {
-            // small synchronous GET (needed before the launchpad starts)
-            var get = function (url, fallback) {
-                try {
-                    var xhr = new XMLHttpRequest();
-                    xhr.open("GET", url, false);
-                    xhr.setRequestHeader("Accept", "application/json");
-                    xhr.send();
-                    if (xhr.status === 200) return JSON.parse(xhr.responseText);
-                } catch (e) { /* ignore */ }
-                return fallback;
-            };
+            // who is logged in (XSUAA login via approuter) - synchronous: needed before the launchpad starts
+            var me = { name: "User", email: "", isAdmin: false };
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", "/odata/v4/psa/whoAmI()", false);
+                xhr.setRequestHeader("Accept", "application/json");
+                xhr.send();
+                if (xhr.status === 200) me = JSON.parse(xhr.responseText);
+            } catch (e) { /* not logged in -> employee apps only */ }
 
-            // who is logged in (XSUAA login via approuter) + KPI numbers for the tiles
-            var me = get("/odata/v4/psa/whoAmI()", { name: "User", email: "", isAdmin: false });
-            var kpi = get("/odata/v4/psa/kpis()", {});
-            var n = function (value) { return value === null || value === undefined ? "" : String(value); };
-
+            // one Fiori Elements app per intent (semantic object - action)
             var applications = {};
-            var tiles = [];
-
-            // one app (navigation target) + its launchpad tile (icon + KPI number)
-            var addApp = function (intent, component, title, subtitle, icon, number, info, state) {
+            var app = function (intent, component, title, description) {
                 applications[intent] = {
                     title: title,
-                    description: subtitle,
+                    description: description,
                     additionalInformation: "SAPUI5.Component=psa." + component,
                     applicationType: "URL",
                     url: "./" + component + "/webapp",
                     navigationMode: "embedded"
                 };
-                tiles.push({
-                    id: "psa_tile_" + component,
-                    title: title,
-                    size: "1x1",
-                    tileType: "sap.ushell.ui.tile.DynamicTile",
-                    properties: {
-                        chipId: "psa_chip_" + component,
-                        title: title,
-                        subtitle: subtitle,
-                        info: info,
-                        icon: icon,
-                        numberValue: n(number),
-                        numberState: state || "Neutral",
-                        targetURL: "#" + intent
-                    }
-                });
             };
 
-            // start page of the launchpad (role-aware, see app/home): no tile, it is "Home"
-            applications["PSA-home"] = {
-                title: "Home",
-                additionalInformation: "SAPUI5.Component=psa.home",
-                applicationType: "URL",
-                url: "./home/webapp",
-                navigationMode: "embedded"
-            };
-
-            addApp("Timesheet-manage", "timesheets", "My Timesheets", "Log hours and submit",
-                "sap-icon://time-entry-request", kpi.myOpenTimesheets, "Open timesheets",
-                kpi.myOpenTimesheets > 0 ? "Critical" : "Good");
-
+            app("Timesheet-manage", "timesheets", "My Timesheets", "Log hours and submit");
             if (me.isAdmin) {
-                addApp("Timesheet-approve", "approvals", "Approve Timesheets", "Approve or reject",
-                    "sap-icon://approvals", kpi.pendingApprovals, "Waiting for you",
-                    kpi.pendingApprovals > 0 ? "Critical" : "Good");
-                addApp("Project-manage", "projects", "Projects", "Budget, milestones, tasks",
-                    "sap-icon://project-definition-triangle-2", kpi.activeProjects, "Active projects");
-                addApp("Invoice-manage", "invoices", "Billing Workbench", "Generate, issue, paid",
-                    "sap-icon://receipt", kpi.unbilledHours, "Unbilled hours",
-                    kpi.overdueAmount > 0 ? "Error" : "Neutral");
-                addApp("Client-manage", "clients", "Clients", "Master data",
-                    "sap-icon://customer", kpi.clients, "Clients");
-                addApp("Employee-manage", "employees", "Employees", "Master data",
-                    "sap-icon://employee", kpi.employees, "Active employees");
+                app("Manager-home",    "home",       "Manager Home",       "KPIs and budget burn");
+                app("Approval-manage", "approvals",  "Approve Timesheets", "Approve or reject");
+                app("Project-manage",  "projects",   "Projects",           "Budget, milestones, tasks");
+                app("Invoice-manage",  "invoices",   "Billing Workbench",  "Generate, issue, paid");
+                app("Client-manage",   "clients",    "Clients",            "Master data");
+                app("Employee-manage", "employees",  "Employees",          "Master data");
             }
-
-            // used after start-up (see below)
-            window.psaTiles = tiles;
 
             var names = String(me.name || me.email || "User").split(" ");
 
@@ -111,7 +65,8 @@
                     fiori2: {
                         componentData: {
                             config: {
-                                rootIntent: "PSA-home",          // open our home page instead of the tile grid
+                                // start page: Admin -> Manager Home (ALP), User -> My Timesheets
+                                rootIntent: me.isAdmin ? "Manager-home" : "Timesheet-manage",
                                 enableNotificationsUI: false,
                                 enableNotifications: false,
                                 enableSearch: false,
@@ -141,9 +96,7 @@
     <script>
         sap.ui.getCore().attachInit(function () {
 
-            // The sandbox puts one tile per application into its "generated group" and adds
-            // demo groups ("Sample Applications"). Keep only the generated group and give it
-            // our tiles with icon + KPI number.
+            // show only our apps on the tile page: drop the sandbox demo groups ("Sample Applications")
             var services = window["sap-ushell-config"].services || {};
             ["FlpLaunchPage", "LaunchPage"].forEach(function (name) {
                 var config = services[name] && services[name].adapter && services[name].adapter.config;
@@ -151,11 +104,7 @@
                     config.groups = config.groups.filter(function (group) {
                         return group.id === "sap_ushell_generated_group_id";
                     });
-                    config.groups.forEach(function (group) {
-                        group.title = "Professional Services Automation";
-                        group.isGroupLocked = true;
-                        group.tiles = window.psaTiles;
-                    });
+                    config.groups.forEach(function (group) { group.title = "Professional Services Automation"; });
                 }
             });
 

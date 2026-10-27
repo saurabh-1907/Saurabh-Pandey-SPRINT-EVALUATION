@@ -51,32 +51,32 @@ Only SAP technology is used:
 
 | Role collection | Role | Sees in the launchpad | Can do |
 |---|---|---|---|
-| **PSA_Admin** | Admin | admin home page + all 6 apps | clients, employees, projects (budget, milestones, tasks), approve / reject timesheets, invoices, alerts |
+| **PSA_Admin** | Admin | Manager Home + all apps | clients, employees, projects (budget, milestones, tasks), approve / reject timesheets, invoices, alerts |
 | **PSA_User**  | User  | only **My Timesheets** | own timesheets only (any open task can be picked) |
 
 - A User gets **no data** of projects, budgets, clients, invoices or other employees – the server does not return it
-  (`@restrict` in `srv/psa-service.cds`), and the home page does not show those apps.
+  (`@restrict` in `srv/psa-service.cds`), and the launchpad does not offer those apps.
 - Users log in with their **SAP account** (XSUAA login page); roles are assigned in the BTP cockpit
   (Security → Role Collections). Deployed app: use the collections named **PSA_Admin (org-space)** / **PSA_User (org-space)**.
 - The login e-mail links a user to an **Employee** (`Employees.email`) – an admin creates the employee in the
   **Employees** app with the same e-mail. `…/odata/v4/psa/whoAmI()` shows login, roles and linked employee.
 - The shell header shows the real user; **Sign Out** (user menu) logs out via the approuter (`/do/logout`).
 
-## Home page and Fiori apps
+## Fiori apps (all Fiori Elements, built from CDS annotations)
 
-The launchpad opens on a custom **Home** page instead of the standard square tiles (only SAPUI5
-controls: `sap.f.Card` with numeric headers, lists, avatars, progress bars; colours come from the SAP theme).
-Object pages show progress bars for budget burn,
+Every screen is SAP Fiori Elements: the pages are generated from `app/annotations.cds` and the
+projections in `srv/psa-service.cds`; there is no hand-written view, controller or CSS.
+Start page: **Admin → Manager Home**, **User → My Timesheets**. Object pages show progress bars for budget burn,
 hours used, milestone completion and task burn, coloured status icons (green / orange / red) and a
 success toast after each action.
 
 | App | Role | What you do there |
 |---|---|---|
-| **Home** (start page) | User, Admin | Welcome banner with quick actions. **Admin:** KPI cards (FRD §9) *Active Projects, At-Risk Budgets, Pending Approvals, Unbilled Hours, Draft Invoices, Overdue Amount*; timesheets waiting for approval (approve right there); budget burn per project (click → Project page); tasks at risk; scope-creep alerts. **User:** hours this week, *Log time* (opens or creates the current week), recent timesheets with status and rejection reason, how-it-works steps |
+| **Manager Home** (start page) | Admin | **Analytical List Page** (FRD §9): KPI cards *Active Projects, At-Risk Budgets, Pending Approvals* (click → detail chart); chart *Budget vs. Consumed per project*; table with filters (client, billing type, budget status); row → Project object page; buttons to Approvals, Billing Workbench, My Timesheets, Clients, Employees |
 | **My Timesheets** | User, Admin | *Create* (week = current week, row defaults: week start, 8 h, billable) → add rows in *Hours* → *Create* (save) → *Submit for Approval* |
 | **Approve Timesheets** | Admin | select submitted timesheets → *Approve* or *Reject* (reason) |
 | **Projects** | Admin | *Create* / *Edit* project, fill *Budget*, add *Milestones* → open a milestone → add *Tasks*; see budget burn, alerts, invoices |
-| **Billing Workbench** (Invoices) | Admin | *Generate Invoice* (project + period) → *Issue* → *Mark as Paid* |
+| **Billing Workbench** (Invoices) | Admin | KPI cards *Unbilled Hours, Draft Invoices, Overdue Amount* (FRD §9); *Generate Invoice* (project + period) → *Issue* → *Mark as Paid* |
 | **Clients**, **Employees** | Admin | maintain master data |
 
 ## Flow
@@ -102,8 +102,8 @@ Tax 18 % is added; due date = invoice date + 30 days.
 db/                    data model + sample data (db/data/*.csv)
 srv/psa-service.cds    OData V4 service PSAService (roles, drafts)
 srv/psa-service.js     business logic
-app/index.html         SAP Fiori launchpad (sandbox); start page = app/home (rootIntent PSA-home)
-app/home/webapp        Home page (SAPUI5 XML view + css/style.css, role-aware)
+app/index.html         SAP Fiori launchpad (sandbox); start page per role (rootIntent)
+app/home/webapp        Manager Home (Fiori Elements Analytical List Page on ProjectAnalytics)
 app/annotations.cds    Fiori Elements UI annotations
 app/<name>/webapp      Fiori Elements apps: timesheets, approvals, projects, invoices, clients, employees
 .deploy/app-router     SAP Approuter (XSUAA login)

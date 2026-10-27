@@ -3,7 +3,7 @@
   "sap.app": {
     "id": "psa.home",
     "type": "application",
-    "title": "Home",
+    "title": "Manager Home",
     "applicationVersion": {
       "version": "1.0.0"
     },
@@ -12,7 +12,17 @@
         "uri": "/odata/v4/psa/",
         "type": "OData",
         "settings": {
+          "annotations": [],
           "odataVersion": "4.0"
+        }
+      }
+    },
+    "crossNavigation": {
+      "outbounds": {
+        "ProjectDetails": {
+          "semanticObject": "Project",
+          "action": "manage",
+          "parameters": {}
         }
       }
     }
@@ -28,18 +38,15 @@
   },
   "sap.ui5": {
     "flexEnabled": false,
-    "rootView": {
-      "viewName": "psa.home.view.Home",
-      "type": "XML",
-      "id": "home"
-    },
     "dependencies": {
       "minUI5Version": "1.153.0",
       "libs": {
         "sap.m": {},
-        "sap.f": {},
         "sap.ui.core": {},
-        "sap.ui.layout": {}
+        "sap.fe.templates": {},
+        "sap.chart": {},
+        "sap.viz": {},
+        "sap.ui.table": {}
       }
     },
     "contentDensities": {
@@ -57,12 +64,79 @@
         }
       }
     },
-    "resources": {
-      "css": [
+    "routing": {
+      "config": {},
+      "routes": [
         {
-          "uri": "css/style.css"
+          "pattern": ":?query:",
+          "name": "ProjectAnalyticsList",
+          "target": "ProjectAnalyticsList"
         }
-      ]
+      ],
+      "targets": {
+        "ProjectAnalyticsList": {
+          "type": "Component",
+          "id": "ProjectAnalyticsList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "contextPath": "/ProjectAnalytics",
+              "variantManagement": "None",
+              "initialLoad": "Enabled",
+              "views": {
+                "paths": [
+                  {
+                    "primary": [
+                      {
+                        "annotationPath": "com.sap.vocabularies.UI.v1.PresentationVariant"
+                      }
+                    ],
+                    "secondary": [
+                      {
+                        "annotationPath": "com.sap.vocabularies.UI.v1.LineItem"
+                      }
+                    ],
+                    "defaultPath": "both"
+                  }
+                ]
+              },
+              "keyPerformanceIndicators": {
+                "activeProjects": {
+                  "model": "",
+                  "entitySet": "ProjectAnalytics",
+                  "qualifier": "ActiveProjects"
+                },
+                "atRiskBudgets": {
+                  "model": "",
+                  "entitySet": "ProjectAnalytics",
+                  "qualifier": "AtRiskBudgets"
+                },
+                "pendingApprovals": {
+                  "model": "",
+                  "entitySet": "TimesheetAnalytics",
+                  "qualifier": "PendingApprovals"
+                }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "GridTable",
+                    "rowCountMode": "Fixed",
+                    "rowCount": 5
+                  }
+                }
+              },
+              "navigation": {
+                "ProjectAnalytics": {
+                  "detail": {
+                    "outbound": "ProjectDetails"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "sap.fiori": {

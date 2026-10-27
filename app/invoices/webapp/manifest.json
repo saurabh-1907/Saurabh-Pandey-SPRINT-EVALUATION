@@ -3,7 +3,7 @@
   "sap.app": {
     "id": "psa.invoices",
     "type": "application",
-    "title": "Invoices",
+    "title": "Billing Workbench",
     "applicationVersion": {
       "version": "1.0.0"
     },
@@ -89,6 +89,23 @@
                     "enableExport": false,
                     "selectionMode": "Multi"
                   }
+                }
+              },
+              "keyPerformanceIndicators": {
+                "unbilledHours": {
+                  "model": "",
+                  "entitySet": "EntryAnalytics",
+                  "qualifier": "UnbilledHours"
+                },
+                "draftInvoices": {
+                  "model": "",
+                  "entitySet": "InvoiceAnalytics",
+                  "qualifier": "DraftInvoices"
+                },
+                "overdueAmount": {
+                  "model": "",
+                  "entitySet": "InvoiceAnalytics",
+                  "qualifier": "OverdueAmount"
                 }
               }
             }

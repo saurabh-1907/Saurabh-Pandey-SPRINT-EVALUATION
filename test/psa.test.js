@@ -69,35 +69,28 @@ describe('Login and roles', () => {
         assert.ok(data.value.some(t => t.NODE_KEY === T3));
     });
 
-    it('launchpad KPIs depend on the role', async () => {
-        const { data: admin } = await GET(`${S}/kpis()`, ADMIN);
-        assert.equal(admin.pendingApprovals, 2);       // TS2 + TS3
-        assert.equal(admin.activeProjects, 3);
-        assert.equal(Number(admin.unbilledHours), 34); // approved billable hours of TS1
-        assert.equal(admin.overdueInvoices, 0);        // only invoice is already Paid
-        assert.equal(Number(admin.overdueAmount), 0);
+    it('KPI cards: the analytics entities sum their counters ($apply)', async () => {
+        const sum = async (entity, measure) => {
+            const { data } = await GET(`${S}/${entity}?$apply=aggregate(${measure})`, ADMIN);
+            return Number(data.value[0][measure]);
+        };
+        assert.equal(await sum('ProjectAnalytics', 'ACTIVE_COUNT'), 3);       // Active Projects
+        assert.equal(await sum('ProjectAnalytics', 'AT_RISK_COUNT'), 0);      // At-Risk Budgets
+        assert.equal(await sum('TimesheetAnalytics', 'PENDING_COUNT'), 2);    // Pending Approvals: TS2 + TS3
+        assert.equal(await sum('EntryAnalytics', 'UNBILLED_HOURS'), 34);      // approved billable hours of TS1
+        assert.equal(await sum('InvoiceAnalytics', 'DRAFT_COUNT'), 0);        // Draft Invoices
+        assert.equal(await sum('InvoiceAnalytics', 'OVERDUE_AMOUNT'), 0);     // only invoice is already Paid
 
-        const { data: user } = await GET(`${S}/kpis()`, USER);
-        assert.equal(user.myOpenTimesheets, 1);        // TS4 (Draft)
-        assert.equal(user.mySubmitted, 1);             // TS2
-        assert.equal(user.pendingApprovals, null);
-        assert.equal(user.atRiskTasks, null);
+        // chart of the Manager Home: budget vs. consumed per project
+        const { data } = await GET(`${S}/ProjectAnalytics?$apply=groupby((PROJECT_NAME),aggregate(BUDGET_AMOUNT,CONSUMED_AMOUNT))`, ADMIN);
+        assert.equal(data.value.length, 3);
     });
 
-    it('home page KPIs know the current week of the employee', async () => {
-        const now = new Date();
-        const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (now.getUTCDay() + 6) % 7))
-            .toISOString().slice(0, 10);
-
-        const { data: ts } = await POST(`${S}/TimesheetSrv`, {}, USER);   // new draft = current week
-        const { data: kpi } = await GET(`${S}/kpis()`, USER);
-        assert.equal(kpi.myWeekStart, monday);
-        assert.ok(kpi.myEmployeeID);
-        assert.equal(kpi.myWeekKey, ts.NODE_KEY);
-        assert.equal(kpi.myWeekIsDraft, true);
-        assert.equal(kpi.myWeekStatus, 'Draft');
-
-        await DELETE(draft('TimesheetSrv', ts.NODE_KEY), USER);            // discard again
+    it('User cannot read the Manager Home analytics', async () => {
+        await fails(GET(`${S}/ProjectAnalytics`, USER), 403);
+        await fails(GET(`${S}/TimesheetAnalytics`, USER), 403);
+        await fails(GET(`${S}/InvoiceAnalytics`, USER), 403);
+        await fails(GET(`${S}/EntryAnalytics`, USER), 403);
     });
 
     it('User has no access to approvals, invoices and alerts', async () => {

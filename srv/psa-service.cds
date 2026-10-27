@@ -22,33 +22,6 @@ service PSAService {
 
     function whoAmI() returns WhoAmI;
 
-    // ---------------- KPI numbers for the launchpad tiles ----------------
-
-    type Kpis {
-        // ---- own time (every user) ----
-        myEmployeeID     : UUID;
-        myOpenTimesheets : Integer;          // own Draft / Rejected timesheets
-        mySubmitted      : Integer;          // own timesheets waiting for approval
-        myWeekStart      : Date;             // Monday of the current week
-        myWeekKey        : UUID;             // timesheet of the current week (if any)
-        myWeekIsDraft    : Boolean;          // ... only an unsaved draft so far
-        myWeekStatus     : String(10);
-        myWeekHours      : Decimal(10,2);
-        // ---- admin ----
-        atRiskTasks      : Integer;          // burn >= 80 % and not Done
-        pendingApprovals : Integer;          // Admin only (others: null)
-        atRiskBudgets    : Integer;
-        activeProjects   : Integer;
-        draftInvoices    : Integer;
-        unbilledHours    : Decimal(10,2);
-        overdueInvoices  : Integer;          // Issued and past the due date
-        overdueAmount    : Decimal(15,2);
-        clients          : Integer;
-        employees        : Integer;
-    }
-
-    function kpis() returns Kpis;
-
     // ---------------- Master data ----------------
 
     @odata.draft.enabled
@@ -195,6 +168,87 @@ service PSAService {
         periodFrom : Date,
         periodTo   : Date
     ) returns InvoiceSrv;
+
+    // ---------------- Manager Home (Analytical List Page, Admin) ----------------
+    // one row per project with its budget, so Fiori can group, sum and chart it
+
+    @readonly
+    @cds.redirection.target: false
+    @restrict: [{ grant: 'READ', to: 'Admin' }]
+    entity ProjectAnalytics
+    as projection on database.transaction.Projects {
+        key NODE_KEY,
+            PROJECT_CODE,
+            PROJECT_NAME,
+            BILLING_TYPE,
+            START_DATE,
+            END_DATE,
+            CLIENT.CLIENT_NAME      as CLIENT_NAME      : String(255),
+            BUDGET.CURRENCY_CODE    as CURRENCY_CODE    : String(5),
+            BUDGET.BUDGET_STATUS    as BUDGET_STATUS    : String(15),
+            BUDGET.BUDGET_AMOUNT    as BUDGET_AMOUNT    : Decimal(15,2),
+            BUDGET.CONSUMED_AMOUNT  as CONSUMED_AMOUNT  : Decimal(15,2),
+            BUDGET.REMAINING_AMOUNT as REMAINING_AMOUNT : Decimal(15,2),
+            BUDGET.CONSUMED_PERCENT as CONSUMED_PERCENT : Decimal(7,2),
+            PLANNED_HOURS,
+            CONSUMED_HOURS,
+            case
+                when BUDGET.BUDGET_STATUS = 'Breached' then 1
+                when BUDGET.BUDGET_STATUS = 'At Risk'  then 2
+                else 3
+            end as CRITICALITY : Integer,
+            // counters (summed by Fiori for the KPI cards)
+            case when END_DATE >= current_date then 1 else 0 end as ACTIVE_COUNT : Integer,
+            case
+                when BUDGET.BUDGET_STATUS = 'At Risk' or BUDGET.BUDGET_STATUS = 'Breached' then 1
+                else 0
+            end as AT_RISK_COUNT : Integer
+    };
+
+    // KPI "Pending Approvals" (Manager Home)
+    @readonly
+    @cds.redirection.target: false
+    @restrict: [{ grant: 'READ', to: 'Admin' }]
+    entity TimesheetAnalytics
+    as projection on database.transaction.Timesheets {
+        key NODE_KEY,
+            WEEK_START,
+            STATUS,
+            case when STATUS = 'Submitted' then 1 else 0 end as PENDING_COUNT : Integer
+    };
+
+    // KPIs "Draft Invoices" and "Overdue Amount" (Billing Workbench)
+    @readonly
+    @cds.redirection.target: false
+    @restrict: [{ grant: 'READ', to: 'Admin' }]
+    entity InvoiceAnalytics
+    as projection on database.transaction.Invoices {
+        key NODE_KEY,
+            INVOICE_NO,
+            STATUS,
+            CURRENCY.code        as CURRENCY_CODE : String(3),
+            PROJECT.PROJECT_NAME as PROJECT_NAME  : String(255),
+            case when STATUS = 'Draft' then 1 else 0 end as DRAFT_COUNT : Integer,
+            case
+                when STATUS = 'Issued' and DUE_DATE < current_date then GROSS_AMOUNT
+                else 0
+            end as OVERDUE_AMOUNT : Decimal(15,2)
+    };
+
+    // KPI "Unbilled Hours" (Billing Workbench): approved, billable, not invoiced
+    @readonly
+    @cds.redirection.target: false
+    @restrict: [{ grant: 'READ', to: 'Admin' }]
+    entity EntryAnalytics
+    as projection on database.transaction.TimesheetEntries {
+        key NODE_KEY,
+            WORK_DATE,
+            TASK.MILESTONE.PROJECT.PROJECT_NAME as PROJECT_NAME : String(255),
+            case
+                when PARENT.STATUS = 'Approved' and IS_BILLABLE = true and INVOICE.NODE_KEY is null then HOURS
+                else 0
+            end as UNBILLED_HOURS : Decimal(10,2)
+    };
 
     // ---------------- Scope-creep alerts (Admin) ----------------
 

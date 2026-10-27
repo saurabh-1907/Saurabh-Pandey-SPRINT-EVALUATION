@@ -212,66 +212,6 @@ export default cds.service.impl(async function () {
         return SELECT.one.from(EmployeeSrv).where`tolower(email) = ${login}`;
     }
 
-    this.on('kpis', async (req) => {
-
-        const count = async (entity, where) => {
-            const row = await SELECT.one.from(entity).columns('count(1) as n').where(where);
-            return Number(row?.n ?? 0);
-        };
-
-        const employee = await currentEmployee(req);
-        const weekStart = mondayOf(today());
-
-        // the current week's timesheet: saved one first, otherwise a new unsaved draft
-        let week = null, weekIsDraft = false;
-        if (employee) {
-            week = await SELECT.one.from(TimesheetSrv).where({ EMPLOYEE_ID: employee.ID, WEEK_START: weekStart });
-            if (!week) {
-                week = await SELECT.one.from(TimesheetSrv.drafts).where({ EMPLOYEE_ID: employee.ID, WEEK_START: weekStart });
-                weekIsDraft = !!week;
-            }
-        }
-
-        const result = {
-            myEmployeeID: employee?.ID ?? null,
-            myOpenTimesheets: employee
-                ? await count(TimesheetSrv, { EMPLOYEE_ID: employee.ID, STATUS: { in: ['Draft', 'Rejected'] } })
-                : 0,
-            mySubmitted: employee ? await count(TimesheetSrv, { EMPLOYEE_ID: employee.ID, STATUS: 'Submitted' }) : 0,
-            myWeekStart: weekStart,
-            myWeekKey: week?.NODE_KEY ?? null,
-            myWeekIsDraft: weekIsDraft,
-            myWeekStatus: week?.STATUS ?? null,
-            myWeekHours: round2(week?.TOTAL_HOURS),
-            // admin numbers stay empty for users
-            atRiskTasks: null,
-            pendingApprovals: null, atRiskBudgets: null, activeProjects: null,
-            draftInvoices: null, unbilledHours: null, overdueInvoices: null, overdueAmount: null,
-            clients: null, employees: null
-        };
-
-        if (req.user.is('Admin')) {
-            const unbilled = await SELECT.one.from(TimesheetEntrySrv).columns('sum(HOURS) as h')
-                .where`PARENT.STATUS = 'Approved' and IS_BILLABLE = true and INVOICE.NODE_KEY is null`;
-            const overdue = await SELECT.one.from(InvoiceSrv).columns('count(1) as n', 'sum(GROSS_AMOUNT) as amount')
-                .where({ STATUS: 'Issued', DUE_DATE: { '<': today() } });
-
-            Object.assign(result, {
-                pendingApprovals: await count(TimesheetSrv, { STATUS: 'Submitted' }),
-                atRiskTasks: await count(TaskSrv, { BURN_PERCENT: { '>=': AT_RISK_PERCENT }, STATUS: { '!=': 'Done' } }),
-                atRiskBudgets: await count(BudgetSrv, { BUDGET_STATUS: { in: ['At Risk', 'Breached'] } }),
-                activeProjects: await count(ProjectSrv, { END_DATE: { '>=': today() } }),
-                draftInvoices: await count(InvoiceSrv, { STATUS: 'Draft' }),
-                unbilledHours: round2(unbilled?.h),
-                overdueInvoices: Number(overdue?.n ?? 0),
-                overdueAmount: round2(overdue?.amount),
-                clients: await count(this.entities.ClientSrv, {}),
-                employees: await count(EmployeeSrv, { isActive: true })
-            });
-        }
-        return result;
-    });
-
     this.on('whoAmI', async (req) => {
 
         const payload = tokenPayload(req);

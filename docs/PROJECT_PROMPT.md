@@ -91,7 +91,7 @@ Hard constraints:
 | FR-006 | Manager approves or rejects a submitted timesheet; rejection needs a reason | Status and approver recorded | Approve Timesheets app. `approveTimesheet` stores `APPROVED_BY`. `rejectTimesheet(reason)` requires a reason. Nobody can approve their own timesheet. A rejected timesheet can be corrected and submitted again. |
 | FR-007 | Budget consumption updates dynamically | Dashboard reflects the change within 60 s | The roll-up runs synchronously in the approve action, so the change is visible instantly. |
 | FR-008 | Task-level burn tracking (actual vs. estimate) | Warning colour at 80 %, error at 100 % | `TaskSrv.CRITICALITY` (≥ 100 → red, ≥ 80 → orange, else green), progress bars in the UI. |
-| FR-009 | Automatic alerts at thresholds 75 / 90 / 100 % for task and project | One alert per threshold crossing | An `Alerts` entity, written once per (project or task, threshold), shown on the project page and the Home page. E-mail is out of scope. |
+| FR-009 | Automatic alerts at thresholds 75 / 90 / 100 % for task and project | One alert per threshold crossing | An `Alerts` entity, written once per (project or task, threshold), shown on the project page and the Project page. E-mail is out of scope. |
 | FR-010 | Finance generates invoices from approved billable hours for Fixed, T&M, Retainer | Totals reconcile to entries; tax by configuration | The `generateInvoice(projectID, periodFrom, periodTo)` action. Tax is 18 % and the due date is +30 days (constants). |
 | FR-011 | Invoice lifecycle; invoiced timesheets are locked | Valid transitions only; no double billing | Draft → Issued → Paid via `issueInvoice` / `markInvoicePaid`. Billed entries get `INVOICE` set, and a timesheet becomes *Invoiced* when all its billable hours are billed. PDF/DIM, Overdue and Cancelled are simplified: *Overdue* is computed as Issued + past the due date. |
 | FR-012 | Role-based access with row-level restrictions, audit log | Employee sees only own time | `@requires` / `@restrict` with `where: 'EMPLOYEE.email = $user'`. The audit log is out of scope. |
@@ -147,12 +147,12 @@ this to two XSUAA roles:**
 
 | Role (scope) | Role collection | Can do |
 |---|---|---|
-| **Admin** | `PSA_Admin` | everything: clients, employees, projects (budget, milestones, tasks), approve or reject timesheets, invoices, alerts, admin Home dashboard, also own timesheets |
+| **Admin** | `PSA_Admin` | everything: clients, employees, projects (budget, milestones, tasks), approve or reject timesheets, invoices, alerts, Manager Home dashboard, also own timesheets |
 | **User** | `PSA_User` | only own timesheets: create, edit, submit. Reads tasks to pick them. Sees nothing else. |
 
 - The login e-mail (`$user`) links a user to an `Employees` record (case-insensitive).
 - If a logged-in user has no employee record, show the message "your account is not linked with an employee".
-- **Hide what a user may not see.** Do not show a *Forbidden* error. The Home page shows only the apps and data of the user's role, and the server returns no foreign data.
+- **Hide what a user may not see.** Do not show a *Forbidden* error. The launchpad offers only the apps of the user's role, and the server returns no foreign data.
 - The launchpad header shows the real user name, and *Sign Out* calls `/do/logout` of the approuter.
 - Provide a `whoAmI()` function (user, name, e-mail, origin, isAdmin, isUser, scopes, linked employee) for troubleshooting.
 - Roles are assigned manually in the BTP cockpit (no auto-assignment), using the **Default identity provider** (origin `sap.default`).
@@ -240,18 +240,16 @@ There is one service, `@requires: 'authenticated-user' service PSAService` at `/
 Unbound operations:
 - `action generateInvoice(projectID, periodFrom, periodTo) returns InvoiceSrv` – Admin
 - `function whoAmI() returns WhoAmI` – all users
-- `function kpis() returns Kpis` – all users. For everyone it returns the employee's own numbers:
-  `myEmployeeID`, `myOpenTimesheets`, `mySubmitted`, and the current week (`myWeekStart` = Monday,
-  `myWeekKey`, `myWeekIsDraft`, `myWeekStatus`, `myWeekHours`). For an Admin it also returns:
-  - `pendingApprovals`, `atRiskTasks` (burn ≥ 80 %, not Done)
-  - `atRiskBudgets`
-  - `activeProjects` (END_DATE ≥ today)
-  - `draftInvoices`
-  - `unbilledHours`
-  - `overdueInvoices`, `overdueAmount` (Issued and past due)
-  - `clients`, `employees`
 
-  For a non-admin these fields are explicitly `null`.
+Read-only **analytics projections** (Admin, `@cds.redirection.target: false`) for the KPI cards and the chart.
+Each one has a counter or amount column that Fiori sums with `$apply`:
+
+| Projection | Based on | Measures |
+|---|---|---|
+| `ProjectAnalytics` | Projects + Budget + Client (flattened) | `BUDGET_AMOUNT`, `CONSUMED_AMOUNT`, `REMAINING_AMOUNT`, `PLANNED_HOURS`, `CONSUMED_HOURS`, `ACTIVE_COUNT` (END_DATE ≥ `current_date`), `AT_RISK_COUNT` |
+| `TimesheetAnalytics` | Timesheets | `PENDING_COUNT` (status Submitted) |
+| `InvoiceAnalytics` | Invoices | `DRAFT_COUNT`, `OVERDUE_AMOUNT` (Issued and past due) |
+| `EntryAnalytics` | TimesheetEntries | `UNBILLED_HOURS` (approved, billable, not invoiced) |
 
 Annotations in the service:
 - Mark system-filled fields `@readonly` (consumed and remaining amounts, burn and completion %, timesheet status, totals, approver).
@@ -283,23 +281,20 @@ All annotations live in `app/annotations.cds`.
 
 | Tile / App | Template | Key elements |
 |---|---|---|
-| **Home** (`home`, start page, User + Admin) | Freestyle SAPUI5 XML view (`sap.m.Page`, `sap.f.Card` with `NumericHeader` / `Header`, `List`, `Avatar`, `ProgressIndicator`) + `css/style.css` using SAP theme variables. No square tiles. | **Banner:** greeting with the user's name, date, role badge, one-line summary, quick-action buttons. **Admin:** KPI cards *Active Projects, At-Risk Budgets, Pending Approvals, Unbilled Hours, Draft Invoices, Overdue Amount* (FRD §9); *Waiting for your approval* list with an inline *Approve* button (bound action, toast, refresh); *Budget burn per project* (click → project page); *Tasks at risk*; *Scope-creep alerts*; *Your apps* list. **User:** cards *Hours this week, Open timesheets, Waiting for approval*; *This week* card with progress (40 h only as a guide) and **Log time** (opens the current week's timesheet or creates its draft); *My recent timesheets* with status and rejection reason; *How it works* (3 steps). Lists are bound `suspended` and resumed only for the right role. |
+| **Manager Home** (`home`, start page of the Admin) | **Analytical List Page** (List Report with `views` primary = `UI.PresentationVariant` → chart, secondary = `UI.LineItem`, Grid Table) on `ProjectAnalytics` | **KPI cards** in the header (manifest `keyPerformanceIndicators` → `UI.KPI` annotations): *Active Projects*, *At-Risk Budgets*, *Pending Approvals* (from `TimesheetAnalytics`); each opens a detail chart. **Chart** *Budget vs. Consumed per project* (`UI.Chart`, measures = `Aggregation.CustomAggregate` with `@Aggregation.default: #SUM`). **Table** with filters (client, billing type, budget status), column widths via `@HTML5.CssDefaults`; row → outbound navigation to `Project-manage`, which opens the object page because `ProjectSrv` has `@Common.SemanticKey: [PROJECT_CODE]`. **Buttons** (`UI.DataFieldForIntentBasedNavigation`) to Approvals, Billing Workbench, My Timesheets, Clients, Employees. |
 | **My Timesheets** (`timesheets`, User + Admin) | List Report + Object Page | Header: Total Hours, Status. *Hours* table with inline creation (date, task value help, hours, billable checkbox, notes). *Week* section. Buttons *Create/Save* and *Submit for Approval*. |
 | **Approve Timesheets** (`approvals`, Admin) | List Report + Object Page | Filters for employee and week. Multi-select *Approve* and *Reject* (reason dialog). |
 | **Projects** (`projects`, Admin) | List Report + Object Page + sub object page (Milestone) | Header with project info, *Budget Used* progress, *Hours Used* progress, Budget Status, Remaining Budget. Facets: Overview (General, Schedule, Budget), Milestones & Tasks, Scope-Creep Alerts, Invoices. *Recalculate Budget* action. |
-| **Billing Workbench** (`invoices`, Admin) | List Report + Object Page | *Generate Invoice* (project, period), *Issue*, *Mark as Paid*. Header: total, status, due date. |
+| **Billing Workbench** (`invoices`, Admin) | List Report + Object Page | **KPI cards** *Unbilled Hours* (`EntryAnalytics`), *Draft Invoices*, *Overdue Amount* (`InvoiceAnalytics`). *Generate Invoice* (project, period), *Issue*, *Mark as Paid*. Header: total, status, due date. |
 | **Clients**, **Employees** (Admin) | List Report + Object Page | Master data with field groups and communication annotations. |
 
 **Launchpad: `app/index.html`, FLP sandbox `test-resources/sap/ushell/bootstrap/sandbox.js`**
-1. Before the FLP starts, make synchronous `GET /odata/v4/psa/whoAmI()` and `/odata/v4/psa/kpis()` calls, with safe fallbacks if they fail.
-2. Build `applications` only for the user's role. Each entry uses `applicationType: "URL"`, `additionalInformation: "SAPUI5.Component=psa.<app>"` and `url: "./<app>/webapp"`.
-3. Make the custom Home app the start page: register it as `applications["PSA-home"]` and set `renderers.fiori2.componentData.config.rootIntent: "PSA-home"`. As a fallback for `#Shell-home`, also build `sap.ushell.ui.tile.DynamicTile` tiles (title, subtitle, icon, KPI number, number state, info).
-4. **Important:** do **not** define your own `LaunchPage.adapter.config.groups`. The CDN sandbox loads its own `fioriSandboxConfig.json` (the "Sample Applications" demo group) and merges it over yours, which leaves the home page empty. Instead, in `sap.ui.getCore().attachInit`:
-   - keep only the group `sap_ushell_generated_group_id`,
-   - rename it,
-   - replace its `tiles` with your KPI tiles.
+1. Before the FLP starts, make a synchronous `GET /odata/v4/psa/whoAmI()` call, with a safe fallback if it fails.
+2. Build `applications` only for the user's role. Each entry uses `applicationType: "URL"`, `additionalInformation: "SAPUI5.Component=psa.<app>"` and `url: "./<app>/webapp"`. Intents: `Manager-home`, `Timesheet-manage`, `Approval-manage`, `Project-manage`, `Invoice-manage`, `Client-manage`, `Employee-manage`.
+   Give every app its **own semantic object**: Fiori Elements shows an intent button only if the launchpad returns exactly one app for it.
+3. Start page per role: `renderers.fiori2.componentData.config.rootIntent` = `Manager-home` for an Admin, `Timesheet-manage` for a User.
+4. **Important:** do **not** define your own `LaunchPage.adapter.config.groups`. The CDN sandbox loads its own `fioriSandboxConfig.json` ("Sample Applications") and merges it over yours. In `sap.ui.getCore().attachInit`, keep only the group `sap_ushell_generated_group_id` and rename it.
 5. Set the real user in `services.Container.adapter.config`.
-   The Home view needs `height="100%"`, otherwise it renders with zero height inside the launchpad.
 6. Call `sap.ushell.Container.registerLogout(() => location.href = "/do/logout")`.
 7. Disable search, notifications and personalization.
 
@@ -382,7 +377,7 @@ Write automated tests (≥ 30) that cover:
 - **Roles and visibility**
   - A User sees only their own timesheets and own employee record.
   - A User gets 403 on projects, clients and invoices.
-- **KPIs per role**: admin numbers vs. `null` for users; the employee's current week (Monday, timesheet key, draft flag, status).
+- **KPI analytics**: `$apply=aggregate(...)` on the analytics projections returns the KPI numbers; a User gets 403 on them.
 - **Project draft creation** with budget and validation errors (duplicate code, budget ≤ 0, dates).
 - **User timesheet draft**
   - defaults (employee, Monday, entry defaults) and Monday adjustment
@@ -416,7 +411,7 @@ Write automated tests (≥ 30) that cover:
 **Fiori and UI5**
 - **UI5 version:** use 1.153.0 from the SAPUI5 CDN for every app and the launchpad, and give the standalone index.html a full-height style. Otherwise the page is blank.
 - **CDN sandbox merge:** see §7. Never filter the FLP to a group id you defined yourself.
-- **OData V4 values in freestyle formatters:** the V4 model hands formatters *formatted* strings ("17,600.00"). Parse them with `NumberFormat.parse`, or bind without a formatter.
+- **KPI cards:** the KPI value must be an `Aggregation.CustomAggregate` (with `@Aggregation.default`), and a currency/unit of an amount KPI needs one too (`#MAX`), because Fiori aggregates it as well. Put `UI.KPI.DataPoint` inline, not as a path.
 - **Toasts:** use `req.notify` for success messages (toast). `req.info` opens a dialog.
 
 **Login and roles**
@@ -430,8 +425,8 @@ Write automated tests (≥ 30) that cover:
 - [ ] `npm test` passes.
 - [ ] `cds build --production`, `cds deploy --to hana` and `cds watch --profile hybrid` work.
 - [ ] `mbt build` + `cf deploy` work, and the public URL leads to the SAP login and then the launchpad.
-- [ ] The launchpad opens on the Home page (no square tiles). Admin sees the admin dashboard and 6 apps; the User sees only their own week, timesheets and *My Timesheets*. No *Sample Applications*, no Forbidden pages.
-- [ ] The admin Home shows all six FRD KPI cards, inline approval and budget burn per project with drill-down; *Log time* opens or creates the current week.
+- [ ] Admin starts on the Manager Home (ALP), User starts on My Timesheets. No *Sample Applications*, no Forbidden pages, no hand-written views or CSS.
+- [ ] Manager Home shows the KPI cards *Active Projects, At-Risk Budgets, Pending Approvals*, the budget chart and table with drill-down; Billing Workbench shows *Unbilled Hours, Draft Invoices, Overdue Amount*.
 - [ ] End-to-end flow works in the browser:
   1. The user creates a week, adds hours and submits. A toast appears and the timesheet is locked.
   2. The admin approves. Task, milestone, project and budget update, and alerts appear.
