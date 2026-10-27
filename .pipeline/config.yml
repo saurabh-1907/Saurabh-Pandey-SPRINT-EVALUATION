@@ -11,7 +11,7 @@ stages:
   Build:
     npmExecuteLint: false
   Additional Unit Tests:
-    npmExecuteScripts: true     # runs "npm test" (38 CAP tests, in-memory SQLite, no HANA needed)
+    npmExecuteScripts: true     # runs "npm test" (41 CAP tests, in-memory SQLite, no HANA needed)
   Release:
     cloudFoundryDeploy: false   # set to true after filling in the Cloud Foundry values below
 

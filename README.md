@@ -114,7 +114,7 @@ app/<name>/webapp      Fiori Elements apps: timesheets, approvals, projects, inv
 .deploy/app-router     SAP Approuter (XSUAA login)
 xs-security.json       XSUAA roles + role collections PSA_Admin / PSA_User
 mta.yaml               Cloud Foundry deployment
-test/psa.test.js       38 automated tests (npm test)
+test/psa.test.js       41 automated tests (npm test)
 docs/FRD_TRACEABILITY.md  FRD / PPT requirement -> implementation
 ```
 
@@ -221,4 +221,4 @@ Pipeline **SAP Cloud Application Programming Model**: every push to `main` runs 
 
 ## Tests
 
-`npm test` – runs the 38 tests on an in-memory database with test logins (no HANA / XSUAA needed).
+`npm test` – runs the 41 tests on an in-memory database with test logins (no HANA / XSUAA needed).

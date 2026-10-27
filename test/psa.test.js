@@ -201,6 +201,59 @@ describe('Admin creates a project in Fiori (draft)', () => {
     });
 });
 
+describe('FR-003: dates fall within the parent period', () => {
+
+    // project 1 Nov - 31 Dec with a valid budget, saved as draft
+    async function newProject(code) {
+        const { data } = await POST(`${S}/ProjectSrv`, {}, ADMIN);
+        await PATCH(draft('ProjectSrv', data.NODE_KEY), {
+            PROJECT_CODE: code, PROJECT_NAME: 'Date check', CLIENT_NODE_KEY: CLIENT1,
+            START_DATE: '2026-11-01', END_DATE: '2026-12-31', PLANNED_HOURS: 50
+        }, ADMIN);
+        const { data: d } = await GET(`${draft('ProjectSrv', data.NODE_KEY)}?$expand=BUDGET`, ADMIN);
+        await PATCH(draft('BudgetSrv', d.BUDGET.NODE_KEY), { BUDGET_AMOUNT: 5000, BILLING_RATE: 100 }, ADMIN);
+        return data.NODE_KEY;
+    }
+
+    it('a milestone outside the project period is rejected', async () => {
+        const key = await newProject('PRJ-2026-020');
+        await POST(`${draft('ProjectSrv', key)}/MILESTONES`, {
+            MILESTONE_NAME: 'Too early', START_DATE: '2026-10-01', END_DATE: '2026-11-15'
+        }, ADMIN);
+
+        await fails(POST(`${draft('ProjectSrv', key)}/PSAService.draftActivate`, {}, ADMIN), 400);
+        await DELETE(draft('ProjectSrv', key), ADMIN);
+    });
+
+    it('a task outside the milestone period is rejected', async () => {
+        const key = await newProject('PRJ-2026-021');
+        const { data: milestone } = await POST(`${draft('ProjectSrv', key)}/MILESTONES`, {
+            MILESTONE_NAME: 'Build', START_DATE: '2026-11-01', END_DATE: '2026-11-30'
+        }, ADMIN);
+        await POST(`${draft('MilestoneSrv', milestone.NODE_KEY)}/TASKS`, {
+            TASK_NAME: 'Late task', ESTIMATED_HOURS: 8, START_DATE: '2026-11-20', END_DATE: '2026-12-10'
+        }, ADMIN);
+
+        await fails(POST(`${draft('ProjectSrv', key)}/PSAService.draftActivate`, {}, ADMIN), 400);
+        await DELETE(draft('ProjectSrv', key), ADMIN);
+    });
+
+    it('dates inside the parent periods are accepted', async () => {
+        const key = await newProject('PRJ-2026-022');
+        const { data: milestone } = await POST(`${draft('ProjectSrv', key)}/MILESTONES`, {
+            MILESTONE_NAME: 'Build', START_DATE: '2026-11-01', END_DATE: '2026-11-30'
+        }, ADMIN);
+        await POST(`${draft('MilestoneSrv', milestone.NODE_KEY)}/TASKS`, {
+            TASK_NAME: 'On time', ESTIMATED_HOURS: 8, START_DATE: '2026-11-02', END_DATE: '2026-11-20'
+        }, ADMIN);
+
+        await POST(`${draft('ProjectSrv', key)}/PSAService.draftActivate`, {}, ADMIN);
+        const { data } = await GET(`${active('ProjectSrv', key)}?$expand=MILESTONES($expand=TASKS)`, ADMIN);
+        assert.equal(data.MILESTONES[0].TASKS[0].TASK_NAME, 'On time');
+        assert.equal(data.MILESTONES[0].STATUS, 'Not Started');
+    });
+});
+
 describe('User logs time in Fiori (draft) and submits', () => {
 
     let key;
