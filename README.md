@@ -2,6 +2,7 @@
 
 Professional Services Automation app built with the SAP Cloud Application Programming Model.
 Requirements: [`requiremnets.txt`](requiremnets.txt) and [`docs/requirements`](docs/requirements).
+How every FRD / PPT requirement is covered: [`docs/FRD_TRACEABILITY.md`](docs/FRD_TRACEABILITY.md).
 
 ## Problem → Solution
 
@@ -25,8 +26,10 @@ Project ──< Invoice      Project ──< Alert
 | File | Content |
 |---|---|
 | `db/common.cds` | reusable types (`Guid`, `Email`, `String255`, `AmountT` …), status enums, aspects `Amount` and `Address` |
-| `db/master.cds` | `context master`: **Clients** (uses `common.Address`), **Employees** (`cuid`, a manager = `isManager = true`) |
-| `db/schema.cds` | `context transaction`: **Projects**, **Budgets** (1 per project), **Milestones**, **Tasks**, **Timesheets** (header: one employee, one week), **TimesheetEntries** (items: one day, one task, linked with `PARENT`), **Invoices** (uses `common.Amount`), **Alerts** |
+| `db/master.cds` | `context master`: **Clients** (uses `common.Address`; industry, status), **Employees** (`cuid`, a manager = `isManager = true`), **Settings** (alert thresholds, at-risk %, tax %, payment days) |
+| `db/schema.cds` | `context transaction`: **Projects** (status, priority), **Budgets** (1 per project), **Milestones** (status set automatically), **Tasks** (priority, dates), **Timesheets** (header: one employee, one week; submitted / approved date), **TimesheetEntries** (items: one day, one task, linked with `PARENT`), **Invoices** (uses `common.Amount`; payment date), **Alerts**, **AuditLog**, view **ProjectTimeEntries** |
+
+All entities use the CAP `managed` aspect (created / changed by and at), as the FRD asks.
 
 Like the reference project: keys are `key NODE_KEY : common.Guid`, fields are UPPERCASE,
 items point to their header with `PARENT`, CSV files are named `psa.db-master.*.csv` / `psa.db-transaction.*.csv`,
@@ -51,7 +54,7 @@ Only SAP technology is used:
 
 | Role collection | Role | Sees in the launchpad | Can do |
 |---|---|---|---|
-| **PSA_Admin** | Admin | Manager Home + all apps | clients, employees, projects (budget, milestones, tasks), approve / reject timesheets, invoices, alerts |
+| **PSA_Admin** | Admin | Manager Home + all apps | clients, employees, projects (budget, milestones, tasks), approve / reject timesheets, invoices, alerts, settings, audit log |
 | **PSA_User**  | User  | only **My Timesheets** | own timesheets only (any open task can be picked) |
 
 - A User gets **no data** of projects, budgets, clients, invoices or other employees – the server does not return it
@@ -73,11 +76,13 @@ success toast after each action.
 | App | Role | What you do there |
 |---|---|---|
 | **Manager Home** (start page) | Admin | **Analytical List Page** (FRD §9): KPI cards *Active Projects, At-Risk Budgets, Pending Approvals* (click → detail chart); chart *Budget vs. Consumed per project*; table with filters (client, billing type, budget status); row → Project object page; buttons to Approvals, Billing Workbench, My Timesheets, Clients, Employees |
-| **My Timesheets** | User, Admin | *Create* (week = current week, row defaults: week start, 8 h, billable) → add rows in *Hours* → *Create* (save) → *Submit for Approval* |
+| **My Timesheets** | User, Admin | *Create* (week = current week, row defaults: week start, 8 h, billable) → add rows in *Hours* (task burn shown per row) → *Create* (save) → *Submit for Approval*; **Import Hours** pastes rows from a time tracker (FR-005) |
 | **Approve Timesheets** | Admin | select submitted timesheets → *Approve* or *Reject* (reason) |
-| **Projects** | Admin | *Create* / *Edit* project, fill *Budget*, add *Milestones* → open a milestone → add *Tasks*; see budget burn, alerts, invoices |
-| **Billing Workbench** (Invoices) | Admin | KPI cards *Unbilled Hours, Draft Invoices, Overdue Amount* (FRD §9); *Generate Invoice* (project + period) → *Issue* → *Mark as Paid* |
+| **Projects** | Admin | *Create* / *Edit* project (status, priority, description), fill *Budget*, add *Milestones* → open a milestone → add *Tasks*; header with code, client, status, budget health; facets Budget, Milestones & Tasks, **Timesheets** (all hours booked), Alerts, Invoices, Change Log; **burn rate and projected completion** (`getBurnSummary`) |
+| **Billing Workbench** (Invoices) | Admin | KPI cards *Unbilled Hours, Draft Invoices, Overdue Amount* (FRD §9); *Generate Invoice* (project + period) → *Issue* → *Mark as Paid* (payment date); **Cancel** (hours become billable again); issued invoices past the due date show as **Overdue** |
 | **Clients**, **Employees** | Admin | maintain master data |
+| **Settings** | Admin | alert thresholds (default 75,90,100), budget "At Risk" %, tax %, payment days – used by the logic right away |
+| **Audit Log** | Admin | every save and status change: time, user, action, object, details (FR-012) |
 
 ## Flow
 
@@ -94,7 +99,7 @@ success toast after each action.
 | Fixed    | same, but never more than the budget (contract) amount |
 | Retainer | flat retainer fee per period (each period billed once) |
 
-Tax 18 % is added; due date = invoice date + 30 days.
+Tax (default 18 %) is added; due date = invoice date + payment days (default 30) – both in **Settings**.
 
 ## Project structure
 
@@ -105,11 +110,12 @@ srv/psa-service.js     business logic
 app/index.html         SAP Fiori launchpad (sandbox); start page per role (rootIntent)
 app/home/webapp        Manager Home (Fiori Elements Analytical List Page on ProjectAnalytics)
 app/annotations.cds    Fiori Elements UI annotations
-app/<name>/webapp      Fiori Elements apps: timesheets, approvals, projects, invoices, clients, employees
+app/<name>/webapp      Fiori Elements apps: timesheets, approvals, projects, invoices, clients, employees, settings, auditlog
 .deploy/app-router     SAP Approuter (XSUAA login)
 xs-security.json       XSUAA roles + role collections PSA_Admin / PSA_User
 mta.yaml               Cloud Foundry deployment
-test/psa.test.js       30 automated tests (npm test)
+test/psa.test.js       38 automated tests (npm test)
+docs/FRD_TRACEABILITY.md  FRD / PPT requirement -> implementation
 ```
 
 ## Run in SAP Business Application Studio (hybrid: SAP HANA Cloud + XSUAA)
@@ -200,4 +206,4 @@ the approuter `psa-application` (256 MB) and deploys tables + sample data.
 
 ## Tests
 
-`npm test` – runs the 30 tests on an in-memory database with test logins (no HANA / XSUAA needed).
+`npm test` – runs the 38 tests on an in-memory database with test logins (no HANA / XSUAA needed).

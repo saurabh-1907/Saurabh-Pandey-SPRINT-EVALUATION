@@ -83,18 +83,18 @@ Hard constraints:
 
 | ID | Requirement | Acceptance criteria | Implementation in this project |
 |---|---|---|---|
-| FR-001 | Admin maintains Clients, Departments, Employees, Managers | Unique e-mail; inactive employees cannot log time | Clients and Employees apps (Admin). Manager = Employee with `isManager = true`. Department is left out (simplification). Employee e-mail is stored lower-case. An inactive employee cannot create a timesheet. |
+| FR-001 | Admin maintains Clients, Departments, Employees, Managers | Unique e-mail; inactive employees cannot log time | Clients (industry, status) and Employees (join date) apps (Admin). Manager = Employee with `isManager = true`. Department is left out (simplification). Employee e-mail is stored lower-case. An inactive employee cannot create a timesheet. |
 | FR-002 | Manager creates a project for a client with exactly one budget | Unique `project_code`; `budget > 0`; `end ≥ start` | Projects app with a draft. `BUDGET` is a `Composition of one`. It is created empty on *Create*, and the server validates code uniqueness, budget > 0 and the date order. |
-| FR-003 | Manager defines milestones and tasks with estimated hours | Dates inside the parent period; `estimated_hours > 0` | Milestones are a composition of the project, tasks are a composition of the milestone, edited in the project draft (sub-object page). The checks are validated on save. |
-| FR-004 | Employee logs daily hours per task (billable or not), saves a draft and submits the week | Daily total ≤ 24 h; submit locks the entries | My Timesheets app. Header = one employee + one week (Monday–Sunday), items = one day + one task. The `submitTimesheet` action locks it (Edit/Delete hidden, server rejects changes). |
-| FR-005 | Import hours from third-party trackers (CSV/API) | Unmapped rows reported | **Out of scope** (simplification). Seed data is loaded from CSV. |
-| FR-006 | Manager approves or rejects a submitted timesheet; rejection needs a reason | Status and approver recorded | Approve Timesheets app. `approveTimesheet` stores `APPROVED_BY`. `rejectTimesheet(reason)` requires a reason. Nobody can approve their own timesheet. A rejected timesheet can be corrected and submitted again. |
+| FR-003 | Manager defines milestones and tasks with estimated hours | Dates inside the parent period; `estimated_hours > 0` | Milestones are a composition of the project, tasks are a composition of the milestone, edited in the project draft (sub-object page). Milestone dates must lie inside the project period and task dates inside the milestone period; validated on save. Tasks have priority, dates and status *To Do / In Progress / Done / Blocked*; the milestone status (*Not Started / In Progress / Completed / Delayed*) is set by the roll-up. |
+| FR-004 | Employee logs daily hours per task (billable or not), saves a draft and submits the week | Daily total ≤ 24 h; submit locks the entries | My Timesheets app. Header = one employee + one week (Monday–Sunday), items = one day + one task. The `submitTimesheet` action locks it (Edit/Delete hidden, server rejects changes) and stamps `SUBMITTED_DATE`. Total and billable hours are kept on the header. |
+| FR-005 | Import hours from third-party trackers (CSV/API) | Unmapped rows reported | Bound action `importHours(rows)` on a Draft/Rejected timesheet: paste CSV lines `date;task;hours;billable;notes` (task = name, or `PROJECT_CODE / name`). Valid rows are added, duplicates (same task + day) ignored, unmapped or invalid rows reported with their line number. |
+| FR-006 | Manager approves or rejects a submitted timesheet; rejection needs a reason | Status and approver recorded | Approve Timesheets app. `approveTimesheet` stores `APPROVED_BY` and `APPROVED_DATE`. `rejectTimesheet(reason)` requires a reason. Nobody can approve their own timesheet. A rejected timesheet can be corrected and submitted again. |
 | FR-007 | Budget consumption updates dynamically | Dashboard reflects the change within 60 s | The roll-up runs synchronously in the approve action, so the change is visible instantly. |
 | FR-008 | Task-level burn tracking (actual vs. estimate) | Warning colour at 80 %, error at 100 % | `TaskSrv.CRITICALITY` (≥ 100 → red, ≥ 80 → orange, else green), progress bars in the UI. |
-| FR-009 | Automatic alerts at thresholds 75 / 90 / 100 % for task and project | One alert per threshold crossing | An `Alerts` entity, written once per (project or task, threshold), shown on the project page and the Project page. E-mail is out of scope. |
-| FR-010 | Finance generates invoices from approved billable hours for Fixed, T&M, Retainer | Totals reconcile to entries; tax by configuration | The `generateInvoice(projectID, periodFrom, periodTo)` action. Tax is 18 % and the due date is +30 days (constants). |
-| FR-011 | Invoice lifecycle; invoiced timesheets are locked | Valid transitions only; no double billing | Draft → Issued → Paid via `issueInvoice` / `markInvoicePaid`. Billed entries get `INVOICE` set, and a timesheet becomes *Invoiced* when all its billable hours are billed. PDF/DIM, Overdue and Cancelled are simplified: *Overdue* is computed as Issued + past the due date. |
-| FR-012 | Role-based access with row-level restrictions, audit log | Employee sees only own time | `@requires` / `@restrict` with `where: 'EMPLOYEE.email = $user'`. The audit log is out of scope. |
+| FR-009 | Automatic alerts at thresholds 75 / 90 / 100 % for task and project | One alert per threshold crossing | An `Alerts` entity, written once per (project or task, threshold), shown on the project page. The thresholds are maintained in the **Settings** app (default `75,90,100`). E-mail is out of scope. |
+| FR-010 | Finance generates invoices from approved billable hours for Fixed, T&M, Retainer | Totals reconcile to entries; tax by configuration | The `generateInvoice(projectID, periodFrom, periodTo)` action. Tax % and payment days come from the **Settings** app (defaults 18 % and 30 days). |
+| FR-011 | Invoice lifecycle; invoiced timesheets are locked | Valid transitions only; no double billing | Draft → Issued → Paid via `issueInvoice` / `markInvoicePaid`. Billed entries get `INVOICE` set, and a timesheet becomes *Invoiced* when all its billable hours are billed. `markInvoicePaid(paymentDate)` stores `PAYMENT_DATE`. `cancelInvoice` (Draft/Issued → Cancelled) unlinks the hours so they can be billed again. *Overdue* is shown when an issued invoice is past its due date (`PAYMENT_STATUS`). PDF/DIM is out of scope. |
+| FR-012 | Role-based access with row-level restrictions, audit log | Employee sees only own time | `@requires` / `@restrict` with `where: 'EMPLOYEE.email = $user'`. All entities use the `managed` aspect; an `AuditLog` entity records every saved create/update/delete (changed fields) and every status action (user, time, action, object, details), shown in the **Audit Log** app. |
 
 ### Business rules (FRD §6.4, §7.2), all enforced on the server
 
@@ -181,22 +181,26 @@ Follow the style of the reference project `saurabh-1907/SAP-Repository`:
   - `Address` (STREET, POSTAL_CODE, CITY, COUNTRY, BUILDING)
 
 **`db/master.cds`**: namespace `psa.db`, `context master`, in its own file.
-- **Clients** : `common.Address` – NODE_KEY, CLIENT_NAME, CONTACT_PERSON, EMAIL, PHONE
-- **Employees** : `cuid` – nameFirst, nameLast, email, phoneNumber, jobTitle, Currency_code,
+- **Clients** : `common.Address`, `managed` – NODE_KEY, CLIENT_NAME, CONTACT_PERSON, EMAIL, PHONE, INDUSTRY, STATUS (Active/Inactive/Prospect)
+- **Employees** : `cuid`, `managed` – nameFirst, nameLast, email, phoneNumber, jobTitle, joinDate, Currency_code,
   hourlyRate, isManager (default false), isActive (default true), manager (Association to Employees)
 
-**`db/schema.cds`**: `context transaction`.
+- **Settings** : `managed` – key ID (= 1), ALERT_THRESHOLDS ('75,90,100'), AT_RISK_PERCENT (80), TAX_PERCENT (18), PAYMENT_DAYS (30)
+
+**`db/schema.cds`**: `context transaction`, every entity with the `managed` aspect.
 
 | Entity | Fields | Relations |
 |---|---|---|
-| **Projects** | PROJECT_CODE, PROJECT_NAME, BILLING_TYPE, START_DATE, END_DATE, PLANNED_HOURS, CONSUMED_HOURS | CLIENT, MANAGER (Employees); `BUDGET : Composition of one Budgets`; `MILESTONES : Composition of many`; ALERTS, INVOICES (Association to many) |
+| **Projects** | PROJECT_CODE, PROJECT_NAME, DESCRIPTION, BILLING_TYPE, STATUS, PRIORITY, START_DATE, END_DATE, PLANNED_HOURS, CONSUMED_HOURS | CLIENT, MANAGER (Employees); `BUDGET : Composition of one Budgets`; `MILESTONES : Composition of many`; ALERTS, INVOICES, TIME_ENTRIES (Association to many) |
 | **Budgets** (1 : 1) | BUDGET_AMOUNT, BILLING_RATE, RETAINER_FEE, CURRENCY_CODE, CONSUMED_AMOUNT, REMAINING_AMOUNT, CONSUMED_PERCENT, BUDGET_STATUS | PROJECT |
-| **Milestones** | MILESTONE_NAME, START_DATE, END_DATE, COMPLETION_PERCENT | PROJECT; `TASKS : Composition of many` |
-| **Tasks** | TASK_NAME, STATUS, ESTIMATED_HOURS, ACTUAL_HOURS, BURN_PERCENT | MILESTONE, ASSIGNEE (Employees) |
-| **Timesheets** (header) | WEEK_START, WEEK_END, TOTAL_HOURS, STATUS, REJECTION_REASON | EMPLOYEE, APPROVED_BY; `Entries : Composition of many TimesheetEntries on Entries.PARENT = $self` |
+| **Milestones** | MILESTONE_NAME, DESCRIPTION, START_DATE, END_DATE, COMPLETION_PERCENT, STATUS | PROJECT; `TASKS : Composition of many` |
+| **Tasks** | TASK_NAME, DESCRIPTION, START_DATE, END_DATE, PRIORITY, STATUS, ESTIMATED_HOURS, ACTUAL_HOURS, BURN_PERCENT | MILESTONE, ASSIGNEE (Employees) |
+| **Timesheets** (header) | WEEK_START, WEEK_END, TOTAL_HOURS, BILLABLE_HOURS, STATUS, SUBMITTED_DATE, APPROVED_DATE, REJECTION_REASON | EMPLOYEE, APPROVED_BY; `Entries : Composition of many TimesheetEntries on Entries.PARENT = $self` |
 | **TimesheetEntries** (items) | WORK_DATE, HOURS Decimal(4,2), IS_BILLABLE, NOTES | PARENT, TASK, INVOICE |
-| **Invoices** : `common.Amount` | INVOICE_NO, PERIOD_FROM, PERIOD_TO, INVOICE_DATE, DUE_DATE, BILLABLE_HOURS, STATUS | PROJECT; Entries (Association to many on INVOICE) |
+| **Invoices** : `common.Amount` | INVOICE_NO, PERIOD_FROM, PERIOD_TO, INVOICE_DATE, DUE_DATE, PAYMENT_DATE, BILLABLE_HOURS, STATUS (Draft/Issued/Paid/Cancelled) | PROJECT; Entries (Association to many on INVOICE) |
 | **Alerts** | THRESHOLD, CONSUMED_PERCENT, MESSAGE | PROJECT, TASK |
+| **AuditLog** | TIMESTAMP, USER_ID, ACTION, ENTITY, ENTITY_KEY, DETAILS | – |
+| view **ProjectTimeEntries** | entry + task name + employee name + timesheet status + invoice no | PROJECT (via TASK.MILESTONE.PROJECT) |
 
 Simplifications compared with the FRD:
 - Manager is merged into Employees.
@@ -227,19 +231,23 @@ There is one service, `@requires: 'authenticated-user' service PSAService` at `/
 |---|---|---|---|
 | ClientSrv | yes | Admin `*` | – |
 | EmployeeSrv | yes | User READ `where email = $user`; Admin `*` | `fullName` |
-| ProjectSrv | yes | Admin `*` | `HOURS_PERCENT`; action `recalculateBudget()` |
+| ProjectSrv | yes | Admin `*` | `HOURS_PERCENT`; virtual `BURN_RATE`, `PROJECTED_END` (filled in `after READ`); `TIME_ENTRIES` redirected to ProjectTimeSrv; action `recalculateBudget()` |
 | BudgetSrv | (composition) | Admin `*` | `CRITICALITY` (Breached 1, At Risk 2, else 3) |
-| MilestoneSrv | (composition) | Admin `*` | – |
+| MilestoneSrv | (composition) | Admin `*` | `STATUS_CRITICALITY` |
 | TaskSrv | (composition) | User READ; Admin `*` | `PROJECT_CODE`, `CRITICALITY` (burn ≥ 100 → 1, ≥ 80 → 2, else 3) |
-| TimesheetSrv | yes | User READ/WRITE/submitTimesheet `where EMPLOYEE.email = $user`; Admin `*` | `STATUS_CRITICALITY`, `IS_LOCKED` (true unless Draft/Rejected); action `submitTimesheet()` |
+| TimesheetSrv | yes | User READ/WRITE/submitTimesheet `where EMPLOYEE.email = $user`; Admin `*` | `STATUS_CRITICALITY`, `IS_LOCKED` (true unless Draft/Rejected); actions `submitTimesheet()`, `importHours(rows)` |
 | TimesheetEntrySrv | (composition) | User `where PARENT.EMPLOYEE.email = $user`; Admin `*` | – |
 | ApprovalSrv | no, `@readonly`, `@cds.redirection.target: false` | Admin | projection on Timesheets `where STATUS = 'Submitted'`, Entries redirected to TimesheetEntrySrv; actions `approveTimesheet()`, `rejectTimesheet(reason)` |
-| InvoiceSrv | no, `@readonly` | Admin | `STATUS_CRITICALITY`; actions `issueInvoice()`, `markInvoicePaid()` |
+| InvoiceSrv | no, `@readonly` | Admin | `PAYMENT_STATUS` (Overdue when issued and past due), `STATUS_CRITICALITY`; actions `issueInvoice()`, `markInvoicePaid(paymentDate)`, `cancelInvoice()` |
+| ProjectTimeSrv | no, `@readonly`, `@cds.redirection.target: false` | Admin READ | hours booked on a project (Timesheets facet) |
+| SettingsSrv | yes | Admin READ/UPDATE (no create/delete) | – |
+| AuditLogSrv | no, `@readonly` | Admin READ | – |
 | AlertSrv | no, `@readonly` | Admin READ | `CRITICALITY` |
 
 Unbound operations:
 - `action generateInvoice(projectID, periodFrom, periodTo) returns InvoiceSrv` – Admin
 - `function whoAmI() returns WhoAmI` – all users
+- `function getBurnSummary(projectID) returns BurnSummary` – Admin: budget, consumed, remaining, %, status, planned / consumed hours, burn rate (approved hours per week since the start), projected completion (today + remaining hours / burn rate)
 
 Read-only **analytics projections** (Admin, `@cds.redirection.target: false`) for the KPI cards and the chart.
 Each one has a counter or amount column that Fiori sums with `$apply`:
@@ -282,15 +290,17 @@ All annotations live in `app/annotations.cds`.
 | Tile / App | Template | Key elements |
 |---|---|---|
 | **Manager Home** (`home`, start page of the Admin) | **Analytical List Page** (List Report with `views` primary = `UI.PresentationVariant` → chart, secondary = `UI.LineItem`, Grid Table) on `ProjectAnalytics` | **KPI cards** in the header (manifest `keyPerformanceIndicators` → `UI.KPI` annotations): *Active Projects*, *At-Risk Budgets*, *Pending Approvals* (from `TimesheetAnalytics`); each opens a detail chart. **Chart** *Budget vs. Consumed per project* (`UI.Chart`, measures = `Aggregation.CustomAggregate` with `@Aggregation.default: #SUM`). **Table** with filters (client, billing type, budget status), column widths via `@HTML5.CssDefaults`; row → outbound navigation to `Project-manage`, which opens the object page because `ProjectSrv` has `@Common.SemanticKey: [PROJECT_CODE]`. **Buttons** (`UI.DataFieldForIntentBasedNavigation`) to Approvals, Billing Workbench, My Timesheets, Clients, Employees. |
-| **My Timesheets** (`timesheets`, User + Admin) | List Report + Object Page | Header: Total Hours, Status. *Hours* table with inline creation (date, task value help, hours, billable checkbox, notes). *Week* section. Buttons *Create/Save* and *Submit for Approval*. |
+| **My Timesheets** (`timesheets`, User + Admin) | List Report + Object Page | Header: Total Hours, Billable Hours, Status. *Hours* table with inline creation (date, task value help, hours, billable checkbox, notes, task burn % in colour). *Week* section with submitted / approved dates. Buttons *Create/Save*, *Import Hours*, *Submit for Approval*. |
 | **Approve Timesheets** (`approvals`, Admin) | List Report + Object Page | Filters for employee and week. Multi-select *Approve* and *Reject* (reason dialog). |
-| **Projects** (`projects`, Admin) | List Report + Object Page + sub object page (Milestone) | Header with project info, *Budget Used* progress, *Hours Used* progress, Budget Status, Remaining Budget. Facets: Overview (General, Schedule, Budget), Milestones & Tasks, Scope-Creep Alerts, Invoices. *Recalculate Budget* action. |
-| **Billing Workbench** (`invoices`, Admin) | List Report + Object Page | **KPI cards** *Unbilled Hours* (`EntryAnalytics`), *Draft Invoices*, *Overdue Amount* (`InvoiceAnalytics`). *Generate Invoice* (project, period), *Issue*, *Mark as Paid*. Header: total, status, due date. |
+| **Projects** (`projects`, Admin) | List Report + Object Page + sub object page (Milestone) | Header with project info, *Budget Used* progress, *Hours Used* progress, Budget Status, Remaining Budget. Header field group: client, **status**, manager, billing type. Facets: Overview (General incl. description/status/priority, Schedule incl. burn rate and projected completion, Budget), Milestones & Tasks (milestone status in colour), **Timesheets** (`TIME_ENTRIES`), Scope-Creep Alerts, Invoices, Change Log (created/changed by/at). *Recalculate Budget* action. |
+| **Billing Workbench** (`invoices`, Admin) | List Report + Object Page | **KPI cards** *Unbilled Hours* (`EntryAnalytics`), *Draft Invoices*, *Overdue Amount* (`InvoiceAnalytics`). *Generate Invoice* (project, period), *Issue*, *Mark as Paid* (payment date), *Cancel*. Status column shows *Overdue*. Header: total, status, due date. |
 | **Clients**, **Employees** (Admin) | List Report + Object Page | Master data with field groups and communication annotations. |
+| **Settings** (`settings`, Admin) | List Report + Object Page (draft, `Capabilities.InsertRestrictions/DeleteRestrictions` false) | alert thresholds, at-risk %, tax %, payment days |
+| **Audit Log** (`auditlog`, Admin) | List Report + Object Page (read-only) | time, user, action, object, details; filters user / action / object / time |
 
 **Launchpad: `app/index.html`, FLP sandbox `test-resources/sap/ushell/bootstrap/sandbox.js`**
 1. Before the FLP starts, make a synchronous `GET /odata/v4/psa/whoAmI()` call, with a safe fallback if it fails.
-2. Build `applications` only for the user's role. Each entry uses `applicationType: "URL"`, `additionalInformation: "SAPUI5.Component=psa.<app>"` and `url: "./<app>/webapp"`. Intents: `Manager-home`, `Timesheet-manage`, `Approval-manage`, `Project-manage`, `Invoice-manage`, `Client-manage`, `Employee-manage`.
+2. Build `applications` only for the user's role. Each entry uses `applicationType: "URL"`, `additionalInformation: "SAPUI5.Component=psa.<app>"` and `url: "./<app>/webapp"`. Intents: `Manager-home`, `Timesheet-manage`, `Approval-manage`, `Project-manage`, `Invoice-manage`, `Client-manage`, `Employee-manage`, `Settings-manage`, `AuditLog-display`.
    Give every app its **own semantic object**: Fiori Elements shows an intent button only if the launchpad returns exactly one app for it.
 3. Start page per role: `renderers.fiori2.componentData.config.rootIntent` = `Manager-home` for an Admin, `Timesheet-manage` for a User.
 4. **Important:** do **not** define your own `LaunchPage.adapter.config.groups`. The CDN sandbox loads its own `fioriSandboxConfig.json` ("Sample Applications") and merges it over yours. In `sap.ui.getCore().attachInit`, keep only the group `sap_ushell_generated_group_id` and rename it.
@@ -373,7 +383,7 @@ Cloud Central.
 
 ## 10. Tests (`test/psa.test.js`, `node --test` + `@cap-js/cds-test`)
 
-Write automated tests (≥ 30) that cover:
+Write automated tests (≥ 38) that cover:
 - **Roles and visibility**
   - A User sees only their own timesheets and own employee record.
   - A User gets 403 on projects, clients and invoices.
@@ -398,7 +408,10 @@ Write automated tests (≥ 30) that cover:
   - Fixed: capped at the budget
   - Retainer: flat 8,000, and a duplicate period is rejected
   - Linked entries make the timesheet *Invoiced*, and nothing is billed twice.
-- **Invoice lifecycle**: Draft → Issued → Paid; invalid transitions are rejected.
+- **Invoice lifecycle**: Draft → Issued → (Overdue) → Paid with payment date; future payment date rejected; Cancel releases the hours; invalid transitions are rejected.
+- **Project insight**: milestone status, `getBurnSummary`, burn rate / projected end / `TIME_ENTRIES` on the project.
+- **Import hours**: valid row imported, duplicate ignored, unknown task / outside week / Done task reported; locked timesheet rejected.
+- **Settings and audit log**: Admin changes tax via draft; User gets 403; the audit log contains create, submit, approve, reject, import and invoice entries.
 
 ---
 

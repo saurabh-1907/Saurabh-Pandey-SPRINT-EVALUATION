@@ -1,6 +1,7 @@
 namespace psa.db;
 
 using { psa.common as common } from './common';
+using { managed } from '@sap/cds/common';
 using { psa.db.master } from './master';
 
 // Client -> Projects -> (1 Budget) + Milestones -> Tasks
@@ -9,13 +10,16 @@ using { psa.db.master } from './master';
 
 context transaction {
 
-    entity Projects {
+    entity Projects : managed {
 
         key NODE_KEY : common.Guid;
 
         PROJECT_CODE   : common.String32;
         PROJECT_NAME   : common.String255;
+        DESCRIPTION    : String(500);
         BILLING_TYPE   : common.BillingType;
+        STATUS         : common.ProjectStatus default 'Active';
+        PRIORITY       : common.Priority default 'Medium';
         START_DATE     : Date;
         END_DATE       : Date;
         PLANNED_HOURS  : common.Hours;
@@ -36,10 +40,14 @@ context transaction {
 
         INVOICES : Association to many Invoices
                    on INVOICES.PROJECT = $self;
+
+        // all hours booked on the project (Timesheets facet of the project page)
+        TIME_ENTRIES : Association to many ProjectTimeEntries
+                       on TIME_ENTRIES.PROJECT = $self;
     }
 
     // One budget per project
-    entity Budgets {
+    entity Budgets : managed {
 
         key NODE_KEY : common.Guid;
 
@@ -56,14 +64,16 @@ context transaction {
         PROJECT : Association to Projects;
     }
 
-    entity Milestones {
+    entity Milestones : managed {
 
         key NODE_KEY : common.Guid;
 
         MILESTONE_NAME     : common.String255;
+        DESCRIPTION        : String(500);
         START_DATE         : Date;
         END_DATE           : Date;
         COMPLETION_PERCENT : common.Percent default 0;
+        STATUS             : common.MilestoneStatus default 'Not Started';   // set by the roll-up
 
         PROJECT : Association to Projects;
 
@@ -71,11 +81,15 @@ context transaction {
                 on TASKS.MILESTONE = $self;
     }
 
-    entity Tasks {
+    entity Tasks : managed {
 
         key NODE_KEY : common.Guid;
 
         TASK_NAME       : common.String255;
+        DESCRIPTION     : String(500);
+        START_DATE      : Date;
+        END_DATE        : Date;
+        PRIORITY        : common.Priority default 'Medium';
         STATUS          : common.TaskStatus default 'To Do';
         ESTIMATED_HOURS : common.Hours;
         ACTUAL_HOURS    : common.Hours default 0;
@@ -86,14 +100,17 @@ context transaction {
     }
 
     // Header: one employee, one week
-    entity Timesheets {
+    entity Timesheets : managed {
 
         key NODE_KEY : common.Guid;
 
         WEEK_START       : Date;
         WEEK_END         : Date;
         TOTAL_HOURS      : common.Hours default 0;
+        BILLABLE_HOURS   : common.Hours default 0;
         STATUS           : common.TimesheetStatus default 'Draft';
+        SUBMITTED_DATE   : Date;
+        APPROVED_DATE    : Date;
         REJECTION_REASON : common.String255;
 
         EMPLOYEE    : Association to master.Employees;
@@ -104,7 +121,7 @@ context transaction {
     }
 
     // Item: one day, one task
-    entity TimesheetEntries {
+    entity TimesheetEntries : managed {
 
         key NODE_KEY : common.Guid;
 
@@ -118,7 +135,7 @@ context transaction {
         INVOICE : Association to Invoices;
     }
 
-    entity Invoices : common.Amount {
+    entity Invoices : common.Amount, managed {
 
         key NODE_KEY : common.Guid;
 
@@ -127,6 +144,7 @@ context transaction {
         PERIOD_TO      : Date;
         INVOICE_DATE   : Date;
         DUE_DATE       : Date;
+        PAYMENT_DATE   : Date;
         BILLABLE_HOURS : common.Hours;
         STATUS         : common.InvoiceStatus default 'Draft';
 
@@ -136,8 +154,35 @@ context transaction {
                   on Entries.INVOICE = $self;
     }
 
+    // Hours booked on a project: entry + task + timesheet in one row (read-only view)
+    entity ProjectTimeEntries as select from TimesheetEntries {
+        key NODE_KEY,
+            WORK_DATE,
+            HOURS,
+            IS_BILLABLE,
+            NOTES,
+            TASK.TASK_NAME           as TASK_NAME,
+            PARENT.STATUS            as TIMESHEET_STATUS,
+            PARENT.EMPLOYEE.nameFirst || ' ' || PARENT.EMPLOYEE.nameLast as EMPLOYEE_NAME : String(130),
+            INVOICE.INVOICE_NO       as INVOICE_NO,
+            TASK.MILESTONE.PROJECT   as PROJECT
+    };
+
+    // Audit trail: every write and every status change (who, when, what)
+    entity AuditLog {
+
+        key NODE_KEY : common.Guid;
+
+        TIMESTAMP  : Timestamp;
+        USER_ID    : common.String255;
+        ACTION     : common.String64;      // CREATE, UPDATE, DELETE, submitTimesheet, ...
+        ENTITY     : common.String64;
+        ENTITY_KEY : common.String64;
+        DETAILS    : String(1000);         // changed values / message
+    }
+
     // Scope-creep alert, raised once per threshold (75 / 90 / 100 %)
-    entity Alerts {
+    entity Alerts : managed {
 
         key NODE_KEY : common.Guid;
 

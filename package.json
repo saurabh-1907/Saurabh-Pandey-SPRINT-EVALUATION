@@ -17,7 +17,7 @@
     "start": "cds-serve",
     "watch": "cds watch",
     "test": "CDS_ENV=test node --test test/psa.test.js",
-    "build:apps": "mkdir -p gen/srv/app && cp -r app/index.html app/home app/projects app/timesheets app/approvals app/invoices app/clients app/employees gen/srv/app/"
+    "build:apps": "mkdir -p gen/srv/app && cp -r app/index.html app/home app/projects app/timesheets app/approvals app/invoices app/clients app/employees app/settings app/auditlog gen/srv/app/"
   },
   "cds": {
     "requires": {

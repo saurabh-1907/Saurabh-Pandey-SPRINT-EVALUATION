@@ -22,6 +22,20 @@ service PSAService {
 
     function whoAmI() returns WhoAmI;
 
+    // ---------------- Configuration + audit trail (Admin) ----------------
+
+    // thresholds, tax and payment terms used by the business logic (one row)
+    @odata.draft.enabled
+    @restrict: [{ grant: ['READ', 'UPDATE'], to: 'Admin' }]
+    entity SettingsSrv
+    as projection on database.master.Settings;
+
+    // every write and status change: who, when, what
+    @readonly
+    @restrict: [{ grant: 'READ', to: 'Admin' }]
+    entity AuditLogSrv
+    as projection on database.transaction.AuditLog;
+
     // ---------------- Master data ----------------
 
     @odata.draft.enabled
@@ -50,12 +64,41 @@ service PSAService {
         case
             when PLANNED_HOURS > 0 then CONSUMED_HOURS * 100 / PLANNED_HOURS
             else 0
-        end as HOURS_PERCENT : Decimal(7,2)
+        end as HOURS_PERCENT : Decimal(7,2),
+        TIME_ENTRIES : redirected to ProjectTimeSrv,
+        // filled when read (same numbers as getBurnSummary)
+        virtual null as BURN_RATE     : Decimal(10,2),   // approved hours per week
+        virtual null as PROJECTED_END : Date             // when the planned hours are used up
     } actions {
 
         action recalculateBudget()
             returns String;
     };
+
+    // hours booked on a project (Timesheets facet of the project page)
+    @readonly
+    @cds.redirection.target: false
+    @restrict: [{ grant: 'READ', to: 'Admin' }]
+    entity ProjectTimeSrv
+    as projection on database.transaction.ProjectTimeEntries;
+
+    // FRD 7.1: budget, hours, burn rate and projected completion of a project
+    type BurnSummary {
+        projectCode     : String;
+        budgetAmount    : Decimal(15,2);
+        consumedAmount  : Decimal(15,2);
+        remainingAmount : Decimal(15,2);
+        consumedPercent : Decimal(7,2);
+        budgetStatus    : String;
+        plannedHours    : Decimal(10,2);
+        consumedHours   : Decimal(10,2);
+        burnRate        : Decimal(10,2);   // approved hours per week since the start
+        projectedEnd    : Date;            // today + remaining hours / burn rate
+        currency        : String;
+    }
+
+    @requires: 'Admin'
+    function getBurnSummary(projectID : UUID) returns BurnSummary;
 
     // CRITICALITY = colour in Fiori (1 red, 2 orange, 3 green)
     @restrict: [{ grant: '*', to: 'Admin' }]
@@ -71,7 +114,15 @@ service PSAService {
 
     @restrict: [{ grant: '*', to: 'Admin' }]
     entity MilestoneSrv
-    as projection on database.transaction.Milestones;
+    as projection on database.transaction.Milestones {
+        *,
+        case
+            when STATUS = 'Completed'   then 3
+            when STATUS = 'Delayed'     then 1
+            when STATUS = 'In Progress' then 2
+            else 0
+        end as STATUS_CRITICALITY : Integer
+    };
 
     @restrict: [
         { grant: 'READ', to: 'User' },   // to pick a task in the timesheet
@@ -92,7 +143,7 @@ service PSAService {
 
     @odata.draft.enabled
     @restrict: [
-        { grant: ['READ', 'WRITE', 'submitTimesheet'], to: 'User', where: 'EMPLOYEE.email = $user' },
+        { grant: ['READ', 'WRITE', 'submitTimesheet', 'importHours'], to: 'User', where: 'EMPLOYEE.email = $user' },
         { grant: '*', to: 'Admin' }
     ]
     entity TimesheetSrv
@@ -111,6 +162,10 @@ service PSAService {
     } actions {
 
         action submitTimesheet()
+            returns String;
+
+        // FR-005: paste rows from a time tracker (CSV): date;task;hours;billable;notes
+        action importHours(rows : LargeString @UI.MultiLineText)
             returns String;
     };
 
@@ -148,9 +203,16 @@ service PSAService {
     entity InvoiceSrv
     as projection on database.transaction.Invoices {
         *,
+        // shown status: an issued invoice past its due date is "Overdue"
         case
-            when STATUS = 'Paid'   then 3
-            when STATUS = 'Issued' then 2
+            when STATUS = 'Issued' and DUE_DATE < current_date then 'Overdue'
+            else STATUS
+        end as PAYMENT_STATUS : String(10),
+        case
+            when STATUS = 'Paid'      then 3
+            when STATUS = 'Issued' and DUE_DATE < current_date then 1
+            when STATUS = 'Issued'    then 2
+            when STATUS = 'Cancelled' then 1
             else 0
         end as STATUS_CRITICALITY : Integer
     } actions {
@@ -158,7 +220,11 @@ service PSAService {
         action issueInvoice()
             returns String;
 
-        action markInvoicePaid()
+        action markInvoicePaid(paymentDate : Date)
+            returns String;
+
+        // Draft / Issued -> Cancelled: the hours become billable again
+        action cancelInvoice()
             returns String;
     };
 
@@ -266,6 +332,12 @@ service PSAService {
 annotate PSAService.ProjectSrv with {
     CONSUMED_HOURS @readonly;
     BILLING_TYPE   @assert.range;
+    STATUS         @assert.range;
+    PRIORITY       @assert.range;
+};
+
+annotate PSAService.ClientSrv with {
+    STATUS @assert.range;
 };
 
 annotate PSAService.BudgetSrv with {
@@ -277,10 +349,12 @@ annotate PSAService.BudgetSrv with {
 
 annotate PSAService.MilestoneSrv with {
     COMPLETION_PERCENT @readonly;
+    STATUS             @readonly;
 };
 
 annotate PSAService.TaskSrv with {
     STATUS       @assert.range;
+    PRIORITY     @assert.range;
     ACTUAL_HOURS @readonly;
     BURN_PERCENT @readonly;
 };
@@ -290,6 +364,9 @@ annotate PSAService.TimesheetSrv with {
     APPROVED_BY      @readonly;
     WEEK_END         @readonly;
     TOTAL_HOURS      @readonly;
+    BILLABLE_HOURS   @readonly;
+    SUBMITTED_DATE   @readonly;
+    APPROVED_DATE    @readonly;
     STATUS           @readonly;
     REJECTION_REASON @readonly;
 };

@@ -7,10 +7,13 @@ const { INSERT, SELECT, UPDATE } = cds.ql;
 // SETTINGS
 // ==================================================
 
-const ALERT_THRESHOLDS = [75, 90, 100];   // % of estimate / budget
-const AT_RISK_PERCENT  = 80;
-const TAX_RATE         = 0.18;
-const PAYMENT_DAYS     = 30;
+// defaults - the Admin can change them in the Settings app (table Settings, ID = 1)
+const DEFAULT_SETTINGS = {
+    ALERT_THRESHOLDS: '75,90,100',   // % of estimate / budget
+    AT_RISK_PERCENT : 80,
+    TAX_PERCENT     : 18,
+    PAYMENT_DAYS    : 30
+};
 
 // Only APPROVED hours count against the budget
 const COUNTED = ['Approved', 'Invoiced'];
@@ -46,8 +49,52 @@ export default cds.service.impl(async function () {
         TimesheetEntrySrv,
         ApprovalSrv,
         InvoiceSrv,
-        AlertSrv
+        AlertSrv,
+        SettingsSrv,
+        AuditLogSrv
     } = this.entities;
+
+    // current settings (thresholds, tax, payment terms)
+    async function settings() {
+        const row = await SELECT.one.from(SettingsSrv).where({ ID: 1 });
+        const value = { ...DEFAULT_SETTINGS, ...(row ?? {}) };
+        return {
+            alertThresholds: String(value.ALERT_THRESHOLDS).split(',').map(Number).filter(n => n > 0).sort((a, b) => a - b),
+            atRiskPercent  : Number(value.AT_RISK_PERCENT),
+            taxRate        : Number(value.TAX_PERCENT) / 100,
+            paymentDays    : Number(value.PAYMENT_DAYS)
+        };
+    }
+
+    // ==================================================
+    // AUDIT LOG (FR-012): who changed what and when
+    // ==================================================
+
+    async function audit(req, action, entity, key, details) {
+        await INSERT.into(AuditLogSrv).entries({
+            NODE_KEY  : randomUUID(),
+            TIMESTAMP : new Date().toISOString(),
+            USER_ID   : req.user?.id ?? 'system',
+            ACTION    : action,
+            ENTITY    : entity,
+            ENTITY_KEY: key ? String(key) : null,
+            DETAILS   : details ? String(details).slice(0, 1000) : null
+        });
+    }
+
+    // every saved create / update / delete (drafts are only saved when activated)
+    this.after(['CREATE', 'UPDATE', 'DELETE'], async (_, req) => {
+
+        const entity = req.target?.name?.split('.').pop();
+        if (!entity || entity.endsWith('drafts') || entity === 'AuditLogSrv') return;
+
+        const key = req.data?.NODE_KEY ?? req.data?.ID ?? Object.values(req.params?.[0] ?? {})[0];
+        const changed = Object.keys(req.data ?? {})
+            .filter(field => !['NODE_KEY', 'ID', 'IsActiveEntity', 'HasActiveEntity', 'HasDraftEntity', 'DraftAdministrativeData_DraftUUID'].includes(field)
+                && !field.startsWith('created') && !field.startsWith('modified'));
+
+        await audit(req, req.event, entity, key, changed.length ? 'Fields: ' + changed.join(', ') : null);
+    });
 
     // ==================================================
     // BUDGET ROLL-UP + ALERTS
@@ -55,6 +102,8 @@ export default cds.service.impl(async function () {
     // ==================================================
 
     async function recalculateProject(projectKey) {
+
+        const { alertThresholds, atRiskPercent } = await settings();
 
         const project = await SELECT.one.from(ProjectSrv).where({ NODE_KEY: projectKey });
         if (!project) return;
@@ -86,14 +135,21 @@ export default cds.service.impl(async function () {
                 .where({ NODE_KEY: task.NODE_KEY });
         }
 
-        // ---- milestones: % of tasks done ----
+        // ---- milestones: % of tasks done + status ----
         for (const milestone of milestones) {
 
             const mTasks = tasks.filter(t => t.MILESTONE_NODE_KEY === milestone.NODE_KEY);
             const done = mTasks.filter(t => t.STATUS === 'Done').length;
+            const completion = mTasks.length ? round2(done / mTasks.length * 100) : 0;
+            const started = completion > 0 || mTasks.some(t => t.ACTUAL_HOURS > 0 || t.STATUS === 'In Progress');
+
+            let STATUS = 'Not Started';
+            if (completion >= 100) STATUS = 'Completed';
+            else if (milestone.END_DATE && milestone.END_DATE < today()) STATUS = 'Delayed';
+            else if (started) STATUS = 'In Progress';
 
             await UPDATE(MilestoneSrv)
-                .set({ COMPLETION_PERCENT: mTasks.length ? round2(done / mTasks.length * 100) : 0 })
+                .set({ COMPLETION_PERCENT: completion, STATUS })
                 .where({ NODE_KEY: milestone.NODE_KEY });
         }
 
@@ -121,7 +177,7 @@ export default cds.service.impl(async function () {
 
             let BUDGET_STATUS = 'Within Budget';
             if (consumedPercent > 100) BUDGET_STATUS = 'Breached';
-            else if (consumedPercent >= AT_RISK_PERCENT) BUDGET_STATUS = 'At Risk';
+            else if (consumedPercent >= atRiskPercent) BUDGET_STATUS = 'At Risk';
 
             await UPDATE(BudgetSrv)
                 .set({ CONSUMED_AMOUNT, REMAINING_AMOUNT, CONSUMED_PERCENT: consumedPercent, BUDGET_STATUS })
@@ -136,7 +192,7 @@ export default cds.service.impl(async function () {
 
         const newAlerts = [];
 
-        for (const threshold of ALERT_THRESHOLDS) {
+        for (const threshold of alertThresholds) {
 
             if (budget && consumedPercent >= threshold && !alreadyRaised(null, threshold)) {
                 newAlerts.push({
@@ -180,11 +236,12 @@ export default cds.service.impl(async function () {
     async function updateTimesheetTotal(timesheetKey) {
 
         const entries = await SELECT.from(TimesheetEntrySrv)
-            .columns('HOURS')
+            .columns('HOURS', 'IS_BILLABLE')
             .where({ PARENT_NODE_KEY: timesheetKey });
+        const sum = (list) => round2(list.reduce((total, e) => total + Number(e.HOURS), 0));
 
         await UPDATE(TimesheetSrv)
-            .set({ TOTAL_HOURS: round2(entries.reduce((sum, e) => sum + Number(e.HOURS), 0)) })
+            .set({ TOTAL_HOURS: sum(entries), BILLABLE_HOURS: sum(entries.filter(e => e.IS_BILLABLE)) })
             .where({ NODE_KEY: timesheetKey });
     }
 
@@ -271,8 +328,8 @@ export default cds.service.impl(async function () {
         }
 
         for (const milestone of MILESTONES ?? []) {
-            checkMilestone(req, milestone);
-            for (const task of milestone.TASKS ?? []) checkTask(req, task);
+            checkMilestone(req, milestone, req.data);
+            for (const task of milestone.TASKS ?? []) checkTask(req, task, milestone);
         }
     });
 
@@ -286,17 +343,98 @@ export default cds.service.impl(async function () {
         }
     }
 
-    function checkMilestone(req, milestone) {
+    // FR-003: dates fall within the parent period
+    const outside = (child, parent) =>
+        (child.START_DATE && parent.START_DATE && child.START_DATE < parent.START_DATE) ||
+        (child.END_DATE && parent.END_DATE && child.END_DATE > parent.END_DATE);
+
+    function checkMilestone(req, milestone, project) {
         if (milestone.START_DATE && milestone.END_DATE && milestone.END_DATE < milestone.START_DATE) {
             req.reject(400, `Milestone "${milestone.MILESTONE_NAME}": end date must be on or after start date.`);
         }
+        if (project && outside(milestone, project)) {
+            req.reject(400, `Milestone "${milestone.MILESTONE_NAME}": dates must be inside the project period.`);
+        }
     }
 
-    function checkTask(req, task) {
+    function checkTask(req, task, milestone) {
         if (!(Number(task.ESTIMATED_HOURS) > 0)) {
             req.reject(400, `Task "${task.TASK_NAME ?? ''}": estimated hours must be greater than 0.`);
         }
+        if (task.START_DATE && task.END_DATE && task.END_DATE < task.START_DATE) {
+            req.reject(400, `Task "${task.TASK_NAME ?? ''}": end date must be on or after start date.`);
+        }
+        if (milestone && outside(task, milestone)) {
+            req.reject(400, `Task "${task.TASK_NAME ?? ''}": dates must be inside the milestone period.`);
+        }
     }
+
+    // FRD 7.1 getBurnSummary: burn rate = approved hours per week since the start,
+    // projected end = today + remaining planned hours / burn rate
+    function burn(project) {
+
+        const consumed = Number(project.CONSUMED_HOURS ?? 0);
+        const planned = Number(project.PLANNED_HOURS ?? 0);
+        if (!project.START_DATE || project.START_DATE > today()) {
+            return { burnRate: 0, projectedEnd: null };
+        }
+
+        const until = project.END_DATE && project.END_DATE < today() ? project.END_DATE : today();
+        const weeks = Math.max(1, (new Date(until) - new Date(project.START_DATE)) / (7 * 24 * 3600 * 1000));
+        const burnRate = round2(consumed / weeks);
+
+        let projectedEnd = null;
+        if (consumed >= planned && planned > 0) projectedEnd = today();
+        else if (burnRate > 0) projectedEnd = addDays(today(), Math.ceil((planned - consumed) / burnRate * 7));
+
+        return { burnRate, projectedEnd };
+    }
+
+    this.on('getBurnSummary', async (req) => {
+
+        const project = await SELECT.one.from(ProjectSrv).where({ NODE_KEY: req.data.projectID });
+        if (!project) {
+            return req.reject(404, 'Project not found');
+        }
+        const budget = await SELECT.one.from(BudgetSrv).where({ PROJECT_NODE_KEY: project.NODE_KEY }) ?? {};
+        const { burnRate, projectedEnd } = burn(project);
+
+        return {
+            projectCode    : project.PROJECT_CODE,
+            budgetAmount   : budget.BUDGET_AMOUNT ?? 0,
+            consumedAmount : budget.CONSUMED_AMOUNT ?? 0,
+            remainingAmount: budget.REMAINING_AMOUNT ?? 0,
+            consumedPercent: budget.CONSUMED_PERCENT ?? 0,
+            budgetStatus   : budget.BUDGET_STATUS ?? null,
+            plannedHours   : project.PLANNED_HOURS ?? 0,
+            consumedHours  : project.CONSUMED_HOURS ?? 0,
+            burnRate,
+            projectedEnd,
+            currency       : budget.CURRENCY_CODE ?? null
+        };
+    });
+
+    // burn rate + projected end shown on the project page
+    this.after('READ', [ProjectSrv, ProjectSrv.drafts], async (result, req) => {
+
+        const columns = req.query?.SELECT?.columns;
+        const wanted = !columns || columns.some(c => c === '*' || ['BURN_RATE', 'PROJECTED_END'].includes(c.ref?.[0]));
+        if (!wanted) return;
+
+        const rows = Array.isArray(result) ? result : result ? [result] : [];
+        for (const row of rows) {
+            if (!row?.NODE_KEY) continue;
+
+            const project = await SELECT.one.from(ProjectSrv)
+                .columns('START_DATE', 'END_DATE', 'PLANNED_HOURS', 'CONSUMED_HOURS')
+                .where({ NODE_KEY: row.NODE_KEY });
+            if (!project) continue;
+
+            const { burnRate, projectedEnd } = burn(project);
+            row.BURN_RATE = burnRate;
+            row.PROJECTED_END = projectedEnd;
+        }
+    });
 
     this.on('recalculateBudget', ProjectSrv, async (req) => {
 
@@ -530,11 +668,92 @@ export default cds.service.impl(async function () {
         }
 
         await UPDATE(TimesheetSrv)
-            .set({ STATUS: 'Submitted', REJECTION_REASON: null })
+            .set({ STATUS: 'Submitted', REJECTION_REASON: null, SUBMITTED_DATE: today() })
             .where({ NODE_KEY: key });
 
+        await audit(req, 'submitTimesheet', 'TimesheetSrv', key, `Week ${timesheet.WEEK_START}`);
         req.notify('Timesheet submitted for approval.');
         return 'Timesheet submitted for approval';
+    });
+
+    // ==================================================
+    // IMPORT HOURS FROM A TIME TRACKER (FR-005)
+    // one row per line: date;task;hours;billable;notes  (also , or tab)
+    // the task is its name, or "PROJECT_CODE / task name" if the name is not unique
+    // ==================================================
+
+    this.on('importHours', TimesheetSrv, async (req) => {
+
+        const key = req.params[0].NODE_KEY;
+        const timesheet = await SELECT.one.from(TimesheetSrv).where({ NODE_KEY: key });
+        if (!timesheet) {
+            return req.reject(404, 'Timesheet not found');
+        }
+        if (!isEditable(timesheet)) {
+            return req.reject(409, `Timesheet is ${timesheet.STATUS} and locked.`);
+        }
+
+        const tasks = await SELECT.from(TaskSrv).columns('NODE_KEY', 'TASK_NAME', 'PROJECT_CODE');
+        const existing = await SELECT.from(TimesheetEntrySrv).where({ PARENT_NODE_KEY: key });
+        const accepted = [];
+        const problems = [];
+        let duplicates = 0;
+
+        const lines = String(req.data.rows ?? '').split(/\r?\n/);
+        lines.forEach((line, i) => { lines[i] = { no: i + 1, text: line.trim() }; });
+
+        for (const { no, text } of lines) {
+
+            if (!text || /^date[;,\t]/i.test(text)) continue;          // empty line or header
+            const [date, taskText = '', hours, billable = '', ...notes] = text.split(/[;\t]|,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(v => v.trim());
+
+            // map the tracker's task to a PSA task
+            const [code, name] = taskText.includes('/') ? taskText.split('/').map(v => v.trim()) : [null, taskText];
+            const matches = tasks.filter(t => t.TASK_NAME?.toLowerCase() === name.toLowerCase()
+                && (!code || t.PROJECT_CODE?.toLowerCase() === code.toLowerCase()));
+            if (matches.length !== 1) {
+                problems.push(`line ${no}: task "${taskText}" ${matches.length ? 'is not unique - use PROJECT_CODE / task' : 'not found'}`);
+                continue;
+            }
+
+            const entry = {
+                NODE_KEY: randomUUID(),
+                PARENT_NODE_KEY: key,
+                TASK_NODE_KEY: matches[0].NODE_KEY,
+                WORK_DATE: date,
+                HOURS: Number(String(hours).replace(',', '.')),
+                IS_BILLABLE: !/^(no|n|false|0|non-billable)$/i.test(billable),
+                NOTES: notes.join(' ').replace(/^"|"$/g, '') || null
+            };
+
+            // same task on the same day already booked -> ignore
+            if ([...existing, ...accepted].some(e => e.TASK_NODE_KEY === entry.TASK_NODE_KEY && e.WORK_DATE === entry.WORK_DATE)) {
+                duplicates++;
+                continue;
+            }
+
+            const error = await checkEntries(timesheet, [...existing, ...accepted, entry]);
+            if (error) {
+                problems.push(`line ${no}: ${error}`);
+                continue;
+            }
+            accepted.push(entry);
+        }
+
+        if (accepted.length) {
+            await INSERT.into(TimesheetEntrySrv).entries(accepted);
+            await updateTimesheetTotal(key);
+        }
+
+        const summary = `${accepted.length} row(s) imported, ${duplicates} duplicate(s) ignored, ${problems.length} row(s) not imported.`;
+        await audit(req, 'importHours', 'TimesheetSrv', key, summary);
+
+        if (problems.length) {
+            req.warn(summary + ' ' + problems.join('; '));
+        } else {
+            req.notify(summary);
+        }
+        return summary;
     });
 
     // ==================================================
@@ -566,8 +785,9 @@ export default cds.service.impl(async function () {
         const timesheet = await checkApproval(req);
 
         await UPDATE(TimesheetSrv)
-            .set({ STATUS: 'Approved', APPROVED_BY_ID: timesheet.approverID })
+            .set({ STATUS: 'Approved', APPROVED_BY_ID: timesheet.approverID, APPROVED_DATE: today() })
             .where({ NODE_KEY: timesheet.NODE_KEY });
+        await audit(req, 'approveTimesheet', 'TimesheetSrv', timesheet.NODE_KEY, `Week ${timesheet.WEEK_START}`);
 
         // approved hours now count -> update budgets in real time
         for (const projectKey of await projectsOfTimesheet(timesheet.NODE_KEY)) {
@@ -587,8 +807,9 @@ export default cds.service.impl(async function () {
         const timesheet = await checkApproval(req);
 
         await UPDATE(TimesheetSrv)
-            .set({ STATUS: 'Rejected', APPROVED_BY_ID: timesheet.approverID, REJECTION_REASON: req.data.reason })
+            .set({ STATUS: 'Rejected', APPROVED_BY_ID: timesheet.approverID, REJECTION_REASON: req.data.reason, APPROVED_DATE: null })
             .where({ NODE_KEY: timesheet.NODE_KEY });
+        await audit(req, 'rejectTimesheet', 'TimesheetSrv', timesheet.NODE_KEY, `Reason: ${req.data.reason}`);
 
         req.notify('Timesheet rejected.');
         return 'Timesheet rejected';
@@ -633,6 +854,7 @@ export default cds.service.impl(async function () {
             // flat fee per period, each period billed only once
             const overlap = await SELECT.one.from(InvoiceSrv).where({
                 PROJECT_NODE_KEY: projectID,
+                STATUS: { '!=': 'Cancelled' },
                 PERIOD_FROM: { '<=': periodTo },
                 PERIOD_TO: { '>=': periodFrom }
             });
@@ -652,7 +874,8 @@ export default cds.service.impl(async function () {
 
             if (project.BILLING_TYPE === 'Fixed') {
                 // never bill more than the fixed contract amount
-                const previous = await SELECT.from(InvoiceSrv).columns('NET_AMOUNT').where({ PROJECT_NODE_KEY: projectID });
+                const previous = await SELECT.from(InvoiceSrv).columns('NET_AMOUNT')
+                    .where({ PROJECT_NODE_KEY: projectID, STATUS: { '!=': 'Cancelled' } });
                 const alreadyBilled = previous.reduce((sum, i) => sum + Number(i.NET_AMOUNT), 0);
 
                 net = Math.min(net, budget.BUDGET_AMOUNT - alreadyBilled);
@@ -662,8 +885,9 @@ export default cds.service.impl(async function () {
             }
         }
 
+        const { taxRate, paymentDays } = await settings();
         net = round2(net);
-        const tax = round2(net * TAX_RATE);
+        const tax = round2(net * taxRate);
         const count = (await SELECT.from(InvoiceSrv).columns('NODE_KEY')).length;
 
         const invoice = {
@@ -673,7 +897,7 @@ export default cds.service.impl(async function () {
             PERIOD_FROM: periodFrom,
             PERIOD_TO: periodTo,
             INVOICE_DATE: today(),
-            DUE_DATE: addDays(today(), PAYMENT_DAYS),
+            DUE_DATE: addDays(today(), paymentDays),
             BILLABLE_HOURS: hours,
             NET_AMOUNT: net,
             TAX_AMOUNT: tax,
@@ -702,6 +926,8 @@ export default cds.service.impl(async function () {
             }
         }
 
+        await audit(req, 'generateInvoice', 'InvoiceSrv', invoice.NODE_KEY,
+            `${invoice.INVOICE_NO}: ${hours} h, gross ${invoice.GROSS_AMOUNT} ${invoice.CURRENCY_code}`);
         return SELECT.one.from(InvoiceSrv).where({ NODE_KEY: invoice.NODE_KEY });
     });
 
@@ -709,26 +935,57 @@ export default cds.service.impl(async function () {
     // INVOICE STATUS: Draft -> Issued -> Paid
     // ==================================================
 
-    async function moveInvoice(req, from, to) {
+    async function moveInvoice(req, from, to, extra = {}) {
 
         const key = req.params[0].NODE_KEY;
+        const allowed = [].concat(from);
 
         const invoice = await SELECT.one.from(InvoiceSrv).where({ NODE_KEY: key });
         if (!invoice) {
             return req.reject(404, 'Invoice not found');
         }
-        if (invoice.STATUS !== from) {
-            return req.reject(409, `Invoice is ${invoice.STATUS}; only ${from} invoices can be set to ${to}.`);
+        if (!allowed.includes(invoice.STATUS)) {
+            return req.reject(409, `Invoice is ${invoice.STATUS}; only ${allowed.join(' or ')} invoices can be set to ${to}.`);
         }
 
-        await UPDATE(InvoiceSrv).set({ STATUS: to }).where({ NODE_KEY: key });
+        await UPDATE(InvoiceSrv).set({ STATUS: to, ...extra }).where({ NODE_KEY: key });
+        await audit(req, `invoice ${invoice.STATUS} -> ${to}`, 'InvoiceSrv', key, invoice.INVOICE_NO);
 
         req.notify(`Invoice ${invoice.INVOICE_NO} is now ${to}.`);
-        return `Invoice ${invoice.INVOICE_NO} moved from ${from} to ${to}`;
+        return invoice;
     }
 
-    this.on('issueInvoice', InvoiceSrv, (req) => moveInvoice(req, 'Draft', 'Issued'));
+    this.on('issueInvoice', InvoiceSrv, async (req) => {
+        const invoice = await moveInvoice(req, 'Draft', 'Issued');
+        return invoice && `Invoice ${invoice.INVOICE_NO} moved from Draft to Issued`;
+    });
 
-    this.on('markInvoicePaid', InvoiceSrv, (req) => moveInvoice(req, 'Issued', 'Paid'));
+    this.on('markInvoicePaid', InvoiceSrv, async (req) => {
+
+        const paymentDate = req.data.paymentDate ?? today();
+        if (paymentDate > today()) {
+            return req.reject(400, 'The payment date cannot be in the future.');
+        }
+
+        const invoice = await moveInvoice(req, 'Issued', 'Paid', { PAYMENT_DATE: paymentDate });
+        return invoice && `Invoice ${invoice.INVOICE_NO} paid on ${paymentDate}`;
+    });
+
+    // cancel a Draft or Issued invoice: its hours can be billed again
+    this.on('cancelInvoice', InvoiceSrv, async (req) => {
+
+        const invoice = await moveInvoice(req, ['Draft', 'Issued'], 'Cancelled');
+        if (!invoice) return;
+
+        const entries = await SELECT.from(TimesheetEntrySrv).columns('PARENT_NODE_KEY')
+            .where({ INVOICE_NODE_KEY: invoice.NODE_KEY });
+
+        await UPDATE(TimesheetEntrySrv).set({ INVOICE_NODE_KEY: null }).where({ INVOICE_NODE_KEY: invoice.NODE_KEY });
+        for (const timesheetKey of new Set(entries.map(e => e.PARENT_NODE_KEY))) {
+            await UPDATE(TimesheetSrv).set({ STATUS: 'Approved' }).where({ NODE_KEY: timesheetKey, STATUS: 'Invoiced' });
+        }
+
+        return `Invoice ${invoice.INVOICE_NO} cancelled`;
+    });
 
 });

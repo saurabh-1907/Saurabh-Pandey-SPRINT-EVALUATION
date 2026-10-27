@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 const { GET, POST, PATCH, DELETE } = cds.test(import.meta.dirname + '/..');
+const { UPDATE } = cds.ql;
 
 const S = '/odata/v4/psa';
 
@@ -24,6 +25,9 @@ const T3 = '60000000-0000-4000-8000-000000000003';      // Integration build (es
 const T6 = '60000000-0000-4000-8000-000000000006';      // Cutover planning, unassigned
 const TS2 = '70000000-0000-4000-8000-000000000002';     // Rahul, Submitted
 const TS3 = '70000000-0000-4000-8000-000000000003';     // Priya, Submitted
+const TS4 = '70000000-0000-4000-8000-000000000004';     // Rahul, Draft (week 12 Oct)
+const M2 = '50000000-0000-4000-8000-000000000002';      // Build (in progress)
+const TODAY = new Date().toISOString().slice(0, 10);
 
 // expects the request to fail with the given status
 async function fails(request, status) {
@@ -124,6 +128,34 @@ describe('Seed data roll-up (only approved hours count)', () => {
     it('calculates milestone completion from task status', async () => {
         const { data } = await GET(`${S}/MilestoneSrv(${M1})`, ADMIN);
         assert.equal(Number(data.COMPLETION_PERCENT), 100);
+    });
+});
+
+describe('Project insight (FRD 6.4, 7.1, 9)', () => {
+
+    it('milestone status follows its tasks and dates', async () => {
+        const { data } = await GET(`${S}/MilestoneSrv?$filter=NODE_KEY eq ${M1} or NODE_KEY eq ${M2}&$orderby=START_DATE`, ADMIN);
+        assert.equal(data.value[0].STATUS, 'Completed');                  // Blueprint: all tasks Done
+        assert.ok(['In Progress', 'Delayed'].includes(data.value[1].STATUS));
+    });
+
+    it('getBurnSummary returns budget, hours, burn rate and projected end', async () => {
+        const { data } = await GET(`${S}/getBurnSummary(projectID=${P1})`, ADMIN);
+        assert.equal(data.projectCode, 'PRJ-2026-001');
+        assert.equal(Number(data.budgetAmount), 20000);
+        assert.ok(Number(data.burnRate) > 0);
+        assert.ok(data.projectedEnd >= TODAY);
+        await fails(GET(`${S}/getBurnSummary(projectID=${P1})`, USER), 403);
+    });
+
+    it('the project page shows burn rate, projected end and all booked hours', async () => {
+        const { data } = await GET(`${active('ProjectSrv', P1)}?$select=BURN_RATE,PROJECTED_END,STATUS,PRIORITY&$expand=TIME_ENTRIES`, ADMIN);
+        assert.ok(Number(data.BURN_RATE) > 0);
+        assert.ok(data.PROJECTED_END);
+        assert.equal(data.STATUS, 'Active');
+        assert.equal(data.PRIORITY, 'High');
+        assert.ok(data.TIME_ENTRIES.length >= 5);
+        assert.ok(data.TIME_ENTRIES.every(e => e.EMPLOYEE_NAME && e.TASK_NAME));
     });
 });
 
@@ -228,7 +260,9 @@ describe('User logs time in Fiori (draft) and submits', () => {
 
         const { data } = await POST(`${active('TimesheetSrv', key)}/PSAService.submitTimesheet`, {}, USER);
         assert.equal(data.value, 'Timesheet submitted for approval');
-        assert.equal((await getTimesheet(key)).STATUS, 'Submitted');
+        const submitted = await getTimesheet(key);
+        assert.equal(submitted.STATUS, 'Submitted');
+        assert.equal(submitted.SUBMITTED_DATE, TODAY);                    // FR-004: submit stamps the date
 
         assert.equal((await getProject(P1)).CONSUMED_HOURS, before.CONSUMED_HOURS);
 
@@ -248,6 +282,32 @@ describe('User logs time in Fiori (draft) and submits', () => {
         const ts = await getTimesheet(key);
         assert.equal(ts.STATUS, 'Approved');
         assert.equal(ts.APPROVED_BY_ID, MEERA);
+        assert.equal(ts.APPROVED_DATE, TODAY);                           // FR-006: approver and date recorded
+    });
+});
+
+describe('Import hours from a time tracker (FR-005)', () => {
+
+    it('imports valid rows, ignores duplicates and reports unmapped rows', async () => {
+        const rows = [
+            'date;task;hours;billable;notes',
+            '2026-10-14;Integration build;2;yes;API mapping',
+            '2026-10-14;Integration build;2;yes;API mapping',          // duplicate
+            '2026-10-14;Unknown task;1;yes;',                          // not mapped
+            '2026-10-20;Integration build;1;no;',                      // outside the week
+            '2026-10-15;Requirements workshops;1;yes;'                 // task is Done
+        ].join('\n');
+
+        const { data } = await POST(`${active('TimesheetSrv', TS4)}/PSAService.importHours`, { rows }, USER);
+        assert.equal(data.value, '1 row(s) imported, 1 duplicate(s) ignored, 3 row(s) not imported.');
+
+        const ts = await getTimesheet(TS4);
+        assert.equal(Number(ts.TOTAL_HOURS), 14);                         // 12 + 2
+        assert.equal(Number(ts.BILLABLE_HOURS), 14);
+    });
+
+    it('a submitted timesheet cannot import', async () => {
+        await fails(POST(`${active('TimesheetSrv', TS3)}/PSAService.importHours`, { rows: '2026-10-06;UX design;1;yes;' }, ADMIN), 409);
     });
 });
 
@@ -346,12 +406,62 @@ describe('Invoicing (Admin)', () => {
         await fails(POST(`${S}/generateInvoice`, { projectID: P3, periodFrom: '2026-10-15', periodTo: '2026-11-15' }, ADMIN), 409);
     });
 
+    it('cancelling an invoice releases its hours to be billed again', async () => {
+        const { data: list } = await GET(`${S}/InvoiceSrv?$filter=PROJECT_NODE_KEY eq ${P3} and STATUS eq 'Draft'`, ADMIN);
+        const retainer = list.value[0];
+
+        await POST(`${S}/InvoiceSrv(${retainer.NODE_KEY})/cancelInvoice`, {}, ADMIN);
+        assert.equal((await GET(`${S}/InvoiceSrv(${retainer.NODE_KEY})`, ADMIN)).data.STATUS, 'Cancelled');
+        assert.equal((await getTimesheet(TS2)).STATUS, 'Approved');            // its P3 hours are open again
+        await fails(POST(`${S}/InvoiceSrv(${retainer.NODE_KEY})/issueInvoice`, {}, ADMIN), 409);
+
+        // the same period can be billed again
+        await POST(`${S}/generateInvoice`, { projectID: P3, periodFrom: '2026-10-01', periodTo: '2026-10-31' }, ADMIN);
+        assert.equal((await getTimesheet(TS2)).STATUS, 'Invoiced');
+    });
+
     it('status flow Draft -> Issued -> Paid', async () => {
         const url = `${S}/InvoiceSrv(${invoice.NODE_KEY})`;
         await fails(POST(`${url}/markInvoicePaid`, {}, ADMIN), 409);
         await POST(`${url}/issueInvoice`, {}, ADMIN);
         assert.equal((await GET(url, ADMIN)).data.STATUS, 'Issued');
-        await POST(`${url}/markInvoicePaid`, {}, ADMIN);
-        assert.equal((await GET(url, ADMIN)).data.STATUS, 'Paid');
+
+        // past the due date -> shown as Overdue and counted in the KPI
+        await cds.run(UPDATE('psa.db.transaction.Invoices').set({ DUE_DATE: '2026-01-31' }).where({ NODE_KEY: invoice.NODE_KEY }));
+        assert.equal((await GET(url, ADMIN)).data.PAYMENT_STATUS, 'Overdue');
+        const { data: kpi } = await GET(`${S}/InvoiceAnalytics?$apply=aggregate(OVERDUE_AMOUNT)`, ADMIN);
+        assert.equal(Number(kpi.value[0].OVERDUE_AMOUNT), 9204);
+
+        await fails(POST(`${url}/markInvoicePaid`, { paymentDate: '2999-01-01' }, ADMIN), 400);
+        await POST(`${url}/markInvoicePaid`, { paymentDate: TODAY }, ADMIN);
+        const paid = (await GET(url, ADMIN)).data;
+        assert.equal(paid.STATUS, 'Paid');
+        assert.equal(paid.PAYMENT_DATE, TODAY);
+        await fails(POST(`${url}/cancelInvoice`, {}, ADMIN), 409);           // paid invoices stay
+    });
+});
+
+describe('Settings and audit log (Admin)', () => {
+
+    it('Admin can change thresholds and tax; a User cannot', async () => {
+        const url = `${S}/SettingsSrv(ID=1,IsActiveEntity=true)`;
+        assert.equal(Number((await GET(url, ADMIN)).data.TAX_PERCENT), 18);
+
+        await POST(`${url}/PSAService.draftEdit`, { PreserveChanges: true }, ADMIN);
+        await PATCH(`${S}/SettingsSrv(ID=1,IsActiveEntity=false)`, { TAX_PERCENT: 5 }, ADMIN);
+        await POST(`${S}/SettingsSrv(ID=1,IsActiveEntity=false)/PSAService.draftActivate`, {}, ADMIN);
+        assert.equal(Number((await GET(url, ADMIN)).data.TAX_PERCENT), 5);
+
+        await fails(GET(url, USER), 403);
+    });
+
+    it('every write and status change is in the audit log', async () => {
+        const { data } = await GET(`${S}/AuditLogSrv?$orderby=TIMESTAMP`, ADMIN);
+        const actions = data.value.map(a => a.ACTION);
+        for (const action of ['CREATE', 'submitTimesheet', 'approveTimesheet', 'rejectTimesheet', 'importHours', 'generateInvoice']) {
+            assert.ok(actions.includes(action), `audit log has ${action}`);
+        }
+        assert.ok(data.value.every(a => a.USER_ID && a.TIMESTAMP));
+        await fails(GET(`${S}/AuditLogSrv`, USER), 403);
     });
 });

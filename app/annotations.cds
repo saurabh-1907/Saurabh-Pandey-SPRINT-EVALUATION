@@ -89,6 +89,11 @@ annotate PSAService.ProjectSrv with {
     END_DATE       @title: 'End Date';
     PLANNED_HOURS  @title: 'Planned Hours';
     CONSUMED_HOURS @title: 'Approved Hours';
+    DESCRIPTION    @title: 'Description'    @UI.MultiLineText;
+    STATUS         @title: 'Project Status' @Common.QuickInfo: 'Draft, Active, On Hold, Completed or Cancelled';
+    PRIORITY       @title: 'Priority';
+    BURN_RATE      @title: 'Burn Rate (h / week)';
+    PROJECTED_END  @title: 'Projected Completion';
 };
 
 annotate PSAService.BudgetSrv with {
@@ -109,13 +114,20 @@ annotate PSAService.MilestoneSrv with {
     START_DATE         @title: 'Start Date';
     END_DATE           @title: 'End Date';
     COMPLETION_PERCENT @title: 'Complete %'  @Measures.Unit: '%';
+    DESCRIPTION        @title: 'Deliverables / Exit Criteria' @UI.MultiLineText;
+    STATUS             @title: 'Status'  @Common.QuickInfo: 'Set automatically: Not Started, In Progress, Completed or Delayed';
+    STATUS_CRITICALITY @UI.Hidden;
 };
 
 annotate PSAService.TaskSrv with {
     NODE_KEY        @UI.Hidden;
     TASK_NAME       @title: 'Task' @mandatory;
     ASSIGNEE        @title: 'Assigned To';
-    STATUS          @title: 'Status'        @Common.QuickInfo: 'To Do, In Progress or Done';
+    STATUS          @title: 'Status'        @Common.QuickInfo: 'To Do, In Progress, Done or Blocked';
+    PRIORITY        @title: 'Priority';
+    DESCRIPTION     @title: 'Description' @UI.MultiLineText;
+    START_DATE      @title: 'Start Date';
+    END_DATE        @title: 'End Date';
     ESTIMATED_HOURS @title: 'Estimated Hours' @mandatory;
     ACTUAL_HOURS    @title: 'Actual Hours';
     BURN_PERCENT    @title: 'Burn %'  @Measures.Unit: '%';
@@ -128,7 +140,10 @@ annotate PSAService.TimesheetSrv with {
     WEEK_START       @title: 'Week Start (Monday)' @mandatory;
     WEEK_END         @title: 'Week End';
     TOTAL_HOURS      @title: 'Total Hours';
+    BILLABLE_HOURS   @title: 'Billable Hours';
     STATUS           @title: 'Status';
+    SUBMITTED_DATE   @title: 'Submitted On';
+    APPROVED_DATE    @title: 'Approved On';
     APPROVED_BY      @title: 'Approved By';
     REJECTION_REASON @title: 'Rejection Reason';
 };
@@ -139,6 +154,8 @@ annotate PSAService.ApprovalSrv with {
     WEEK_START       @title: 'Week Start';
     WEEK_END         @title: 'Week End';
     TOTAL_HOURS      @title: 'Total Hours';
+    BILLABLE_HOURS   @title: 'Billable Hours';
+    SUBMITTED_DATE   @title: 'Submitted On';
     STATUS           @title: 'Status';
 };
 
@@ -161,9 +178,11 @@ annotate PSAService.InvoiceSrv with {
     DUE_DATE       @title: 'Due Date';
     BILLABLE_HOURS @title: 'Billable Hours';
     NET_AMOUNT     @title: 'Net Amount';
-    TAX_AMOUNT     @title: 'Tax (18%)';
+    TAX_AMOUNT     @title: 'Tax';
     GROSS_AMOUNT   @title: 'Total Amount';
     STATUS         @title: 'Status';
+    PAYMENT_STATUS @title: 'Status';
+    PAYMENT_DATE   @title: 'Paid On';
 };
 
 annotate PSAService.ClientSrv with {
@@ -177,6 +196,8 @@ annotate PSAService.ClientSrv with {
     CITY           @title: 'City';
     POSTAL_CODE    @title: 'Postal Code';
     COUNTRY        @title: 'Country';
+    INDUSTRY       @title: 'Industry';
+    STATUS         @title: 'Status' @Common.QuickInfo: 'Active, Inactive or Prospect';
 };
 
 annotate PSAService.EmployeeSrv with {
@@ -187,6 +208,7 @@ annotate PSAService.EmployeeSrv with {
     email       @title: 'Email';
     phoneNumber @title: 'Phone';
     jobTitle    @title: 'Job Title';
+    joinDate    @title: 'Join Date';
     hourlyRate  @title: 'Cost Rate / Hour';
     isManager   @title: 'Is Manager';
     isActive    @title: 'Active';
@@ -223,12 +245,14 @@ annotate PSAService.ProjectSrv with @(
         Title          : { Value: PROJECT_NAME },
         Description    : { Value: PROJECT_CODE }
     },
-    UI.SelectionFields: [ PROJECT_CODE, CLIENT_NODE_KEY, BILLING_TYPE, MANAGER_ID ],
+    UI.SelectionFields: [ PROJECT_CODE, CLIENT_NODE_KEY, STATUS, BILLING_TYPE, MANAGER_ID, PRIORITY ],
     UI.PresentationVariant: { SortOrder: [{ Property: PROJECT_CODE }], Visualizations: ['@UI.LineItem'] },
     UI.LineItem: [
         { Value: PROJECT_CODE,    ![@UI.Importance]: #High },
         { Value: PROJECT_NAME,    ![@UI.Importance]: #High },
         { Value: CLIENT_NODE_KEY, ![@UI.Importance]: #High },
+        { Value: STATUS,          ![@UI.Importance]: #Medium },
+        { Value: PRIORITY,        ![@UI.Importance]: #Low },
         { Value: BILLING_TYPE,    ![@UI.Importance]: #Low },
         { $Type: 'UI.DataFieldForAnnotation', Target: 'BUDGET/@UI.DataPoint#Burn', Label: 'Budget Used', ![@UI.Importance]: #High },
         { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#Hours',      Label: 'Hours Used',  ![@UI.Importance]: #High },
@@ -243,6 +267,7 @@ annotate PSAService.ProjectSrv with @(
     },
     UI.FieldGroup #HeaderInfo: { Data: [
         { Value: CLIENT_NODE_KEY },
+        { Value: STATUS },
         { Value: MANAGER_ID },
         { Value: BILLING_TYPE }
     ]},
@@ -259,15 +284,26 @@ annotate PSAService.ProjectSrv with @(
     UI.FieldGroup #General: { Data: [
         { Value: PROJECT_CODE },
         { Value: PROJECT_NAME },
+        { Value: DESCRIPTION },
         { Value: CLIENT_NODE_KEY },
         { Value: MANAGER_ID },
-        { Value: BILLING_TYPE }
+        { Value: BILLING_TYPE },
+        { Value: STATUS },
+        { Value: PRIORITY }
     ]},
     UI.FieldGroup #Schedule: { Data: [
         { Value: START_DATE },
         { Value: END_DATE },
         { Value: PLANNED_HOURS },
-        { Value: CONSUMED_HOURS }
+        { Value: CONSUMED_HOURS },
+        { Value: BURN_RATE },
+        { Value: PROJECTED_END }
+    ]},
+    UI.FieldGroup #Admin: { Data: [
+        { Value: createdBy },
+        { Value: createdAt },
+        { Value: modifiedBy },
+        { Value: modifiedAt }
     ]},
     UI.Facets: [
         { $Type: 'UI.CollectionFacet', ID: 'Overview', Label: 'Overview', Facets: [
@@ -276,10 +312,38 @@ annotate PSAService.ProjectSrv with @(
             { $Type: 'UI.ReferenceFacet', Label: 'Budget',   Target: 'BUDGET/@UI.FieldGroup#Budget' }
         ]},
         { $Type: 'UI.ReferenceFacet', Label: 'Milestones & Tasks', Target: 'MILESTONES/@UI.LineItem' },
+        { $Type: 'UI.ReferenceFacet', Label: 'Timesheets',         Target: 'TIME_ENTRIES/@UI.LineItem' },
         { $Type: 'UI.ReferenceFacet', Label: 'Scope-Creep Alerts', Target: 'ALERTS/@UI.LineItem' },
-        { $Type: 'UI.ReferenceFacet', Label: 'Invoices',           Target: 'INVOICES/@UI.LineItem' }
+        { $Type: 'UI.ReferenceFacet', Label: 'Invoices',           Target: 'INVOICES/@UI.LineItem' },
+        { $Type: 'UI.ReferenceFacet', Label: 'Change Log',         Target: '@UI.FieldGroup#Admin' }
     ]
 );
+
+// hours booked on the project (Timesheets facet)
+annotate PSAService.ProjectTimeSrv with @(
+    UI.PresentationVariant: { SortOrder: [{ Property: WORK_DATE, Descending: true }], Visualizations: ['@UI.LineItem'] },
+    UI.LineItem: [
+        { Value: WORK_DATE },
+        { Value: EMPLOYEE_NAME },
+        { Value: TASK_NAME },
+        { Value: HOURS },
+        { Value: IS_BILLABLE },
+        { Value: TIMESHEET_STATUS },
+        { Value: INVOICE_NO },
+        { Value: NOTES }
+    ]
+) {
+    NODE_KEY         @UI.Hidden;
+    PROJECT          @UI.Hidden;
+    WORK_DATE        @title: 'Date';
+    EMPLOYEE_NAME    @title: 'Employee';
+    TASK_NAME        @title: 'Task';
+    HOURS            @title: 'Hours';
+    IS_BILLABLE      @title: 'Billable';
+    TIMESHEET_STATUS @title: 'Timesheet Status';
+    INVOICE_NO       @title: 'Invoice';
+    NOTES            @title: 'Notes';
+};
 
 annotate PSAService.BudgetSrv with @(
     UI.DataPoint #Burn: {
@@ -328,6 +392,7 @@ annotate PSAService.MilestoneSrv with @(
         { Value: MILESTONE_NAME },
         { Value: START_DATE },
         { Value: END_DATE },
+        { Value: STATUS, Criticality: STATUS_CRITICALITY, CriticalityRepresentation: #WithIcon },
         { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#Completion', Label: 'Completed' }
     ],
     UI.DataPoint #Completion: {
@@ -336,14 +401,18 @@ annotate PSAService.MilestoneSrv with @(
         Visualization : #Progress,
         Title         : 'Tasks Done'
     },
+    UI.DataPoint #Status: { Value: STATUS, Criticality: STATUS_CRITICALITY, Title: 'Status' },
     UI.HeaderFacets: [
-        { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Completion' }
+        { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Completion' },
+        { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Status' }
     ],
     UI.FieldGroup #General: { Data: [
         { Value: MILESTONE_NAME },
+        { Value: DESCRIPTION },
         { Value: START_DATE },
         { Value: END_DATE },
-        { Value: COMPLETION_PERCENT }
+        { Value: COMPLETION_PERCENT },
+        { Value: STATUS, Criticality: STATUS_CRITICALITY, CriticalityRepresentation: #WithIcon }
     ]},
     UI.Facets: [
         { $Type: 'UI.ReferenceFacet', Label: 'Milestone', Target: '@UI.FieldGroup#General' },
@@ -356,6 +425,9 @@ annotate PSAService.TaskSrv with @(
         { Value: TASK_NAME },
         { Value: ASSIGNEE_ID },
         { Value: STATUS },
+        { Value: PRIORITY,   ![@UI.Importance]: #Low },
+        { Value: START_DATE, ![@UI.Importance]: #Low },
+        { Value: END_DATE,   ![@UI.Importance]: #Low },
         { Value: ESTIMATED_HOURS },
         { Value: ACTUAL_HOURS },
         { $Type: 'UI.DataFieldForAnnotation', Target: '@UI.DataPoint#Burn', Label: 'Burn (actual / estimate)' }
@@ -400,24 +472,31 @@ annotate PSAService.TimesheetSrv with @(
         { Value: WEEK_END },
         { Value: EMPLOYEE_ID },
         { Value: TOTAL_HOURS },
+        { Value: BILLABLE_HOURS },
         { Value: STATUS, Criticality: STATUS_CRITICALITY, CriticalityRepresentation: #WithIcon },
+        { Value: SUBMITTED_DATE },
         { Value: REJECTION_REASON },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.submitTimesheet', Label: 'Submit for Approval' }
     ],
-    UI.DataPoint #Hours:  { Value: TOTAL_HOURS, Title: 'Total Hours' },
-    UI.DataPoint #Status: { Value: STATUS, Criticality: STATUS_CRITICALITY, Title: 'Status' },
+    UI.DataPoint #Hours:    { Value: TOTAL_HOURS,    Title: 'Total Hours' },
+    UI.DataPoint #Billable: { Value: BILLABLE_HOURS, Title: 'Billable Hours' },
+    UI.DataPoint #Status:   { Value: STATUS, Criticality: STATUS_CRITICALITY, Title: 'Status' },
     UI.HeaderFacets: [
         { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Hours' },
+        { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Billable' },
         { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Status' }
     ],
     UI.Identification: [
+        { $Type: 'UI.DataFieldForAction', Action: 'PSAService.importHours',     Label: 'Import Hours' },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.submitTimesheet', Label: 'Submit for Approval' }
     ],
     UI.FieldGroup #General: { Data: [
         { Value: WEEK_START },
         { Value: WEEK_END },
         { Value: EMPLOYEE_ID },
+        { Value: SUBMITTED_DATE },
         { Value: APPROVED_BY_ID },
+        { Value: APPROVED_DATE },
         { Value: REJECTION_REASON }
     ]},
     UI.Facets: [
@@ -433,7 +512,9 @@ annotate PSAService.TimesheetEntrySrv with @(
         { Value: TASK_NODE_KEY },
         { Value: HOURS },
         { Value: IS_BILLABLE },
-        { Value: NOTES }
+        { Value: NOTES },
+        // task burn so far (approved hours / estimate) - FRD 9 "task burn"
+        { Value: TASK.BURN_PERCENT, Label: 'Task Burn %', Criticality: TASK.CRITICALITY, CriticalityRepresentation: #WithIcon }
     ]
 );
 
@@ -456,6 +537,8 @@ annotate PSAService.ApprovalSrv with @(
         { Value: WEEK_START },
         { Value: WEEK_END },
         { Value: TOTAL_HOURS },
+        { Value: BILLABLE_HOURS },
+        { Value: SUBMITTED_DATE },
         { Value: STATUS, Criticality: STATUS_CRITICALITY, CriticalityRepresentation: #WithIcon },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.approveTimesheet', Label: 'Approve' },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.rejectTimesheet',  Label: 'Reject' }
@@ -495,9 +578,10 @@ annotate PSAService.InvoiceSrv with @(
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.EntityContainer/generateInvoice', Label: 'Generate Invoice' },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.issueInvoice',    Label: 'Issue' },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.markInvoicePaid', Label: 'Mark as Paid' },
+        { $Type: 'UI.DataFieldForAction', Action: 'PSAService.cancelInvoice',   Label: 'Cancel' },
         { Value: INVOICE_NO,       ![@UI.Importance]: #High },
         { Value: PROJECT_NODE_KEY, ![@UI.Importance]: #High },
-        { Value: STATUS, Criticality: STATUS_CRITICALITY, CriticalityRepresentation: #WithIcon, ![@UI.Importance]: #High },
+        { Value: PAYMENT_STATUS, Criticality: STATUS_CRITICALITY, CriticalityRepresentation: #WithIcon, ![@UI.Importance]: #High },
         { Value: GROSS_AMOUNT,     ![@UI.Importance]: #High },
         { Value: DUE_DATE },
         { Value: PERIOD_FROM },
@@ -505,7 +589,7 @@ annotate PSAService.InvoiceSrv with @(
         { Value: BILLABLE_HOURS }
     ],
     UI.DataPoint #Total:  { Value: GROSS_AMOUNT, Title: 'Total Amount' },
-    UI.DataPoint #Status: { Value: STATUS, Criticality: STATUS_CRITICALITY, Title: 'Status' },
+    UI.DataPoint #Status: { Value: PAYMENT_STATUS, Criticality: STATUS_CRITICALITY, Title: 'Status' },
     UI.DataPoint #Due:    { Value: DUE_DATE, Title: 'Due Date' },
     UI.HeaderFacets: [
         { $Type: 'UI.ReferenceFacet', Target: '@UI.DataPoint#Total' },
@@ -514,7 +598,8 @@ annotate PSAService.InvoiceSrv with @(
     ],
     UI.Identification: [
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.issueInvoice',    Label: 'Issue' },
-        { $Type: 'UI.DataFieldForAction', Action: 'PSAService.markInvoicePaid', Label: 'Mark as Paid' }
+        { $Type: 'UI.DataFieldForAction', Action: 'PSAService.markInvoicePaid', Label: 'Mark as Paid' },
+        { $Type: 'UI.DataFieldForAction', Action: 'PSAService.cancelInvoice',   Label: 'Cancel' }
     ],
     UI.FieldGroup #General: { Data: [
         { Value: INVOICE_NO },
@@ -523,7 +608,8 @@ annotate PSAService.InvoiceSrv with @(
         { Value: PERIOD_TO },
         { Value: INVOICE_DATE },
         { Value: DUE_DATE },
-        { Value: STATUS, Criticality: STATUS_CRITICALITY, CriticalityRepresentation: #WithIcon }
+        { Value: PAYMENT_DATE },
+        { Value: PAYMENT_STATUS, Criticality: STATUS_CRITICALITY, CriticalityRepresentation: #WithIcon }
     ]},
     UI.FieldGroup #Amounts: { Data: [
         { Value: BILLABLE_HOURS },
@@ -556,10 +642,12 @@ annotate PSAService.ClientSrv with @(
         Title          : { Value: CLIENT_NAME },
         Description    : { Value: CITY }
     },
-    UI.SelectionFields: [ CLIENT_NAME, COUNTRY ],
+    UI.SelectionFields: [ CLIENT_NAME, INDUSTRY, STATUS, COUNTRY ],
     UI.PresentationVariant: { SortOrder: [{ Property: CLIENT_NAME }], Visualizations: ['@UI.LineItem'] },
     UI.LineItem: [
         { Value: CLIENT_NAME },
+        { Value: INDUSTRY },
+        { Value: STATUS },
         { Value: CONTACT_PERSON },
         { Value: EMAIL },
         { Value: PHONE },
@@ -568,6 +656,8 @@ annotate PSAService.ClientSrv with @(
     ],
     UI.FieldGroup #Contact: { Data: [
         { Value: CLIENT_NAME },
+        { Value: INDUSTRY },
+        { Value: STATUS },
         { Value: CONTACT_PERSON },
         { Value: EMAIL },
         { Value: PHONE }
@@ -623,6 +713,7 @@ annotate PSAService.EmployeeSrv with @(
         { Value: phoneNumber }
     ]},
     UI.FieldGroup #Work: { Data: [
+        { Value: joinDate },
         { Value: hourlyRate },
         { Value: isManager },
         { Value: isActive }
@@ -655,6 +746,17 @@ annotate PSAService.TimesheetSrv actions {
         ] } },
         Common.SideEffects: { TargetEntities: ['in'] }
     );
+    importHours @(
+        Core.OperationAvailable: { $edmJson: { $And: [
+            { $Path: 'in/IsActiveEntity' },
+            { $Or: [
+                { $Eq: [ { $Path: 'in/STATUS' }, 'Draft' ] },
+                { $Eq: [ { $Path: 'in/STATUS' }, 'Rejected' ] }
+            ] }
+        ] } },
+        Common.SideEffects: { TargetEntities: ['in', 'in/Entries'] }
+    );
+    importHours(rows @title: 'Rows from your time tracker: date;task;hours;billable;notes (one per line)');
 };
 
 annotate PSAService.ApprovalSrv actions {
@@ -670,6 +772,14 @@ annotate PSAService.InvoiceSrv actions {
     markInvoicePaid @(
         Core.OperationAvailable: { $edmJson: { $Eq: [ { $Path: 'in/STATUS' }, 'Issued' ] } },
         Common.SideEffects: { TargetEntities: ['in'] }
+    );
+    markInvoicePaid(paymentDate @title: 'Payment Date (empty = today)');
+    cancelInvoice @(
+        Core.OperationAvailable: { $edmJson: { $Or: [
+            { $Eq: [ { $Path: 'in/STATUS' }, 'Draft' ] },
+            { $Eq: [ { $Path: 'in/STATUS' }, 'Issued' ] }
+        ] } },
+        Common.SideEffects: { TargetEntities: ['in', 'in/Entries'] }
     );
 };
 
@@ -740,6 +850,8 @@ annotate PSAService.ProjectAnalytics with @(
         { $Type: 'UI.DataFieldForIntentBasedNavigation', SemanticObject: 'Timesheet', Action: 'manage',  Label: 'My Timesheets',     RequiresContext: false },
         { $Type: 'UI.DataFieldForIntentBasedNavigation', SemanticObject: 'Client',    Action: 'manage',  Label: 'Clients',           RequiresContext: false },
         { $Type: 'UI.DataFieldForIntentBasedNavigation', SemanticObject: 'Employee',  Action: 'manage',  Label: 'Employees',         RequiresContext: false },
+        { $Type: 'UI.DataFieldForIntentBasedNavigation', SemanticObject: 'Settings',  Action: 'manage',  Label: 'Settings',          RequiresContext: false },
+        { $Type: 'UI.DataFieldForIntentBasedNavigation', SemanticObject: 'AuditLog',  Action: 'display', Label: 'Audit Log',         RequiresContext: false },
         { Value: PROJECT_CODE,     ![@HTML5.CssDefaults]: { width: '8.5rem' } },
         { Value: PROJECT_NAME,     ![@HTML5.CssDefaults]: { width: '13rem' } },
         { Value: CLIENT_NAME,      ![@HTML5.CssDefaults]: { width: '10rem' } },
@@ -927,3 +1039,89 @@ annotate PSAService.InvoiceAnalytics with {
 
 // a project code in the URL opens that project directly (drill-down from Manager Home)
 annotate PSAService.ProjectSrv with @Common.SemanticKey: [ PROJECT_CODE ];
+
+// ==================================================
+// SETTINGS APP (Admin): thresholds, tax, payment terms (FR-009, FR-010)
+// ==================================================
+
+annotate PSAService.SettingsSrv with @(
+    // one settings row: it can be edited, not created or deleted
+    Capabilities.InsertRestrictions.Insertable: false,
+    Capabilities.DeleteRestrictions.Deletable : false,
+    UI.HeaderInfo: {
+        TypeName       : 'Settings',
+        TypeNamePlural : 'Settings',
+        TypeImageUrl   : 'sap-icon://action-settings',
+        Title          : { Value: 'PSA Settings' },
+        Description    : { Value: 'Used by alerts, budget status and invoices' }
+    },
+    UI.LineItem: [
+        { Value: ALERT_THRESHOLDS },
+        { Value: AT_RISK_PERCENT },
+        { Value: TAX_PERCENT },
+        { Value: PAYMENT_DAYS },
+        { Value: modifiedBy },
+        { Value: modifiedAt }
+    ],
+    UI.FieldGroup #Alerts: { Data: [
+        { Value: ALERT_THRESHOLDS },
+        { Value: AT_RISK_PERCENT }
+    ]},
+    UI.FieldGroup #Billing: { Data: [
+        { Value: TAX_PERCENT },
+        { Value: PAYMENT_DAYS }
+    ]},
+    UI.Facets: [
+        { $Type: 'UI.ReferenceFacet', Label: 'Scope-Creep Alerts', Target: '@UI.FieldGroup#Alerts' },
+        { $Type: 'UI.ReferenceFacet', Label: 'Invoicing',          Target: '@UI.FieldGroup#Billing' }
+    ]
+) {
+    ID               @UI.Hidden;
+    ALERT_THRESHOLDS @title: 'Alert Thresholds %'  @Common.QuickInfo: 'Comma separated, e.g. 75,90,100';
+    AT_RISK_PERCENT  @title: 'Budget "At Risk" from %';
+    TAX_PERCENT      @title: 'Tax %';
+    PAYMENT_DAYS     @title: 'Payment Terms (days)';
+};
+
+// ==================================================
+// AUDIT LOG APP (Admin, read-only) - FR-012
+// ==================================================
+
+annotate PSAService.AuditLogSrv with @(
+    UI.HeaderInfo: {
+        TypeName       : 'Audit Entry',
+        TypeNamePlural : 'Audit Log',
+        TypeImageUrl   : 'sap-icon://history',
+        Title          : { Value: ACTION },
+        Description    : { Value: ENTITY }
+    },
+    UI.SelectionFields: [ USER_ID, ACTION, ENTITY, TIMESTAMP ],
+    UI.PresentationVariant: { SortOrder: [{ Property: TIMESTAMP, Descending: true }], Visualizations: ['@UI.LineItem'] },
+    UI.LineItem: [
+        { Value: TIMESTAMP, ![@UI.Importance]: #High },
+        { Value: USER_ID,   ![@UI.Importance]: #High },
+        { Value: ACTION,    ![@UI.Importance]: #High },
+        { Value: ENTITY,    ![@UI.Importance]: #High },
+        { Value: DETAILS,   ![@UI.Importance]: #High },
+        { Value: ENTITY_KEY }
+    ],
+    UI.FieldGroup #General: { Data: [
+        { Value: TIMESTAMP },
+        { Value: USER_ID },
+        { Value: ACTION },
+        { Value: ENTITY },
+        { Value: ENTITY_KEY },
+        { Value: DETAILS }
+    ]},
+    UI.Facets: [
+        { $Type: 'UI.ReferenceFacet', Label: 'Entry', Target: '@UI.FieldGroup#General' }
+    ]
+) {
+    NODE_KEY   @UI.Hidden;
+    TIMESTAMP  @title: 'Time';
+    USER_ID    @title: 'User';
+    ACTION     @title: 'Action';
+    ENTITY     @title: 'Object';
+    ENTITY_KEY @title: 'Object Key';
+    DETAILS    @title: 'Details';
+};
