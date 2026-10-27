@@ -204,6 +204,21 @@ the approuter `psa-application` (256 MB) and deploys tables + sample data.
 
 **Trial notes:** HANA Cloud stops every night – start it in HANA Cloud Central; then `cf restart psa-application-srv` if needed.
 
+## CI/CD (SAP Continuous Integration and Delivery)
+
+Pipeline **SAP Cloud Application Programming Model**: every push to `main` runs **Build** (`mbt build`)
+→ **Additional Unit Tests** (`npm test`) → **Release** (`cf deploy`, optional).
+
+1. BTP cockpit → subscribe to **Continuous Integration & Delivery** (free plan on trial / free tier) and assign
+   the role collection *CICD Service Administrator* to yourself.
+2. CI/CD app → **Credentials**: *GitHub* (personal access token, only for a private repo) and
+   *cf-credentials* (Basic Authentication: your BTP e-mail + password).
+3. **Repositories** → add `https://github.com/saurabh-1907/Saurabh-Pandey-Sprint-Evaluation`; copy the
+   webhook data into GitHub (Settings → Webhooks, content type `application/json`, push events).
+4. **Jobs** → create a job for branch `main`, pipeline *SAP Cloud Application Programming Model*,
+   configuration mode **Source Repository** (uses `.pipeline/config.yml`) or **Job Editor** (same settings in the UI).
+5. To deploy from the pipeline, fill in org/space in `.pipeline/config.yml` and set `cloudFoundryDeploy: true`.
+
 ## Tests
 
 `npm test` – runs the 38 tests on an in-memory database with test logins (no HANA / XSUAA needed).

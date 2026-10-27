@@ -1,0 +1,28 @@
+# SAP Continuous Integration and Delivery - pipeline "SAP Cloud Application Programming Model"
+# Used only when the CI/CD job's configuration mode is "Source Repository"
+# (in "Job Editor" mode the same settings are made in the CI/CD UI and this file is ignored).
+general:
+  buildTool: "mta"            # mbt build -> mta_archives/psa-application_1.0.0.mtar
+
+service:
+  buildToolVersion: "MBTJ21N22"   # Cloud MTA Build Tool with Node.js 22
+
+stages:
+  Build:
+    npmExecuteLint: false
+  Additional Unit Tests:
+    npmExecuteScripts: true     # runs "npm test" (38 CAP tests, in-memory SQLite, no HANA needed)
+  Release:
+    cloudFoundryDeploy: false   # set to true after filling in the Cloud Foundry values below
+
+steps:
+  npmExecuteScripts:
+    runScripts:
+      - "test"
+  cloudFoundryDeploy:
+    mtaDeployParameters: "-f --version-rule ALL"
+    cloudFoundry:
+      apiEndpoint: "https://api.cf.us10-001.hana.ondemand.com"   # your region's CF API
+      org: "<your-cf-org>"
+      space: "dev"
+      credentialsId: "cf-credentials"   # a "Basic Authentication" credential in the CI/CD service
