@@ -177,7 +177,8 @@ service PSAService {
     entity TimesheetEntrySrv
     as projection on db.transaction.TimesheetEntries;
 
-    // ---------------- Approvals (Admin): submitted timesheets ----------------
+    // ---------------- Approvals (Admin): timesheets sent for approval ----------------
+    // Submitted ones are to be approved; approved / rejected ones stay visible with their status
 
     @readonly
     @cds.redirection.target: false
@@ -186,9 +187,13 @@ service PSAService {
     as projection on db.transaction.Timesheets {
         *,
         Entries : redirected to TimesheetEntrySrv on Entries.PARENT.NODE_KEY = NODE_KEY,
-        2 as STATUS_CRITICALITY : Integer
+        case
+            when STATUS = 'Rejected'  then 1
+            when STATUS = 'Submitted' then 2
+            else 3
+        end as STATUS_CRITICALITY : Integer
     }
-    where STATUS = 'Submitted' actions {
+    where STATUS <> 'Draft' actions {
 
         action approveTimesheet()
             returns String;
@@ -227,14 +232,15 @@ service PSAService {
         // Draft / Issued -> Cancelled: the hours become billable again
         action cancelInvoice()
             returns String;
-    };
 
-    @requires: 'Admin'
-    action generateInvoice(
-        projectID  : UUID,
-        periodFrom : Date,
-        periodTo   : Date
-    ) returns InvoiceSrv;
+        // bound to the invoice list (button above the table): Fiori reloads the list afterwards
+        action generateInvoice(
+            in         : many $self,
+            projectID  : UUID,
+            periodFrom : Date,
+            periodTo   : Date
+        ) returns InvoiceSrv;
+    };
 
     // ---------------- Manager Home (Analytical List Page, Admin) ----------------
     // one row per project with its budget, so Fiori can group, sum and chart it

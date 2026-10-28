@@ -383,9 +383,9 @@ service PSAService {                 // URL: /odata/v4/psa
 | `TaskSrv` | User READ (to pick a task), Admin `*` | `MILESTONE.PROJECT.PROJECT_CODE as PROJECT_CODE`, burn `CRITICALITY` |
 | `TimesheetSrv` | User READ/WRITE/submit/import **`where: 'EMPLOYEE.email = $user'`**, Admin `*`, draft | `STATUS_CRITICALITY`, `IS_LOCKED`, actions `submitTimesheet()`, `importHours(rows)` |
 | `TimesheetEntrySrv` | User `where: 'PARENT.EMPLOYEE.email = $user'` | items |
-| `ApprovalSrv` | Admin, read-only | `where STATUS = 'Submitted'`; `Entries : redirected to TimesheetEntrySrv on …`; actions approve / reject(reason) |
+| `ApprovalSrv` | Admin, read-only | `where STATUS <> 'Draft'` (submitted, approved, rejected, invoiced); `STATUS_CRITICALITY`; `Entries : redirected to TimesheetEntrySrv on …`; actions approve / reject(reason) |
 | `InvoiceSrv` | Admin, read-only | `PAYMENT_STATUS` (*Overdue* when `STATUS = 'Issued' and DUE_DATE < current_date`), actions issue / markInvoicePaid(paymentDate) / cancel |
-| `generateInvoice(projectID, periodFrom, periodTo)` | Admin | unbound action, returns the invoice |
+| `InvoiceSrv.generateInvoice(in : many $self, projectID, periodFrom, periodTo)` | Admin | action bound to the invoice **list** (`POST …/InvoiceSrv/PSAService.generateInvoice`): Fiori shows it above the table, opens the new invoice and reloads the list |
 | `ProjectAnalytics`, `TimesheetAnalytics`, `InvoiceAnalytics`, `EntryAnalytics` | Admin READ | flat views with **counter columns** (`case … then 1 else 0`) that Fiori sums for the KPI cards and the chart |
 | `AlertSrv` | Admin READ | alert colour |
 
@@ -594,7 +594,7 @@ Every `app/<app>/annotations.cds` starts with
 2. **Fields** – labels come from `db/i18n` (chapter 5.3); each file only adds `@mandatory`, `@UI.Hidden` for technical fields (`CRITICALITY`, keys), quick info, multi-line text, units and labels for calculated fields.
 3. **`projects/annotations.cds`** – `HeaderInfo` (triangle icon); filter fields; table with budget / hours progress bars; header: project info (client, status, manager, billing type), Budget Used, Hours Used, Budget Status, Remaining Budget; sections Overview (General, Schedule with burn rate / projected completion, Budget), Milestones & Tasks, Timesheets, Scope-Creep Alerts, Invoices, Change Log. Budget, Milestone (status colour, completion bar), Task (burn bar) and `ProjectTimeSrv` (hours list) annotations.
 4. **`timesheets/annotations.cds`** – header: total, billable, status; buttons *Import Hours*, *Submit for Approval*; *Hours* table (date, task, hours, billable, notes, task burn %); *Week* group with submitted / approved dates.
-5. **`approvals/annotations.cds`** – list with employee, week, hours, submitted on; *Approve* and *Reject* buttons.
+5. **`approvals/annotations.cds`** – list with employee, week, status, hours (filter *Status* defaults to *Submitted* via `@Common.FilterDefaultValue`); *Approve* / *Reject* above the table (select rows) **and** in the header of the opened timesheet (`UI.Identification`), enabled only for Submitted (`Core.OperationAvailable`).
 6. **`invoices/annotations.cds`** (Billing Workbench) – *Generate Invoice*, *Issue*, *Mark as Paid*, *Cancel*; status column `PAYMENT_STATUS` (shows Overdue); detail with amounts and billed hours.
 7. **`clients/annotations.cds`, `employees/annotations.cds`** – lists, contact / address / work groups.
 8. **Actions** (in the file of the app that has the button) – `OperationAvailable` (Submit/Import only for an active Draft/Rejected timesheet; Issue only Draft; Paid only Issued; Cancel Draft/Issued; Recalculate only on the saved project) and `SideEffects`.

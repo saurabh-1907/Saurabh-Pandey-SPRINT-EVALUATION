@@ -111,8 +111,8 @@ Content-Type: application/json
 
 ### ---------------- Billing (Admin) ----------------
 
-### Generate an invoice for a project and period (unbound action)
-POST {{server}}/generateInvoice
+### Generate an invoice for a project and period (action bound to the invoice list)
+POST {{server}}/InvoiceSrv/PSAService.generateInvoice
 Authorization: {{admin}}
 Content-Type: application/json
 

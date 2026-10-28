@@ -101,7 +101,7 @@ describe('Login and roles', () => {
         await fails(GET(`${S}/ApprovalSrv`, USER), 403);
         await fails(GET(`${S}/InvoiceSrv`, USER), 403);
         await fails(GET(`${S}/AlertSrv`, USER), 403);
-        await fails(POST(`${S}/generateInvoice`, { projectID: P1, periodFrom: '2026-09-01', periodTo: '2026-10-31' }, USER), 403);
+        await fails(POST(`${S}/InvoiceSrv/PSAService.generateInvoice`, { projectID: P1, periodFrom: '2026-09-01', periodTo: '2026-10-31' }, USER), 403);
     });
 
     it('User only sees own timesheets, Admin sees all', async () => {
@@ -395,6 +395,14 @@ describe('Approval (Admin)', () => {
         const p = await getProject(P1);
         assert.equal(Number(p.BUDGET.CONSUMED_AMOUNT), 6400);   // 24 + 10 + 30 billable h x 100
     });
+
+    it('approval list keeps decided timesheets with their status, never drafts', async () => {
+        const { data } = await GET(`${S}/ApprovalSrv(${TS2})`, ADMIN);
+        assert.equal(data.STATUS, 'Approved');
+        assert.equal(data.STATUS_CRITICALITY, 3);                 // green
+        await fails(GET(`${S}/ApprovalSrv(${TS4})`, ADMIN), 404); // Rahul's draft week
+        await fails(POST(`${S}/ApprovalSrv(${TS2})/PSAService.approveTimesheet`, {}, ADMIN), 409);
+    });
 });
 
 describe('Scope-creep alerts', () => {
@@ -436,7 +444,7 @@ describe('Invoicing (Admin)', () => {
     let invoice;
 
     it('T&M: approved billable hours x rate + 18% tax', async () => {
-        const { data } = await POST(`${S}/generateInvoice`, { projectID: P1, periodFrom: '2026-09-01', periodTo: '2026-10-31' }, ADMIN);
+        const { data } = await POST(`${S}/InvoiceSrv/PSAService.generateInvoice`, { projectID: P1, periodFrom: '2026-09-01', periodTo: '2026-10-31' }, ADMIN);
         invoice = data;
         assert.equal(Number(data.BILLABLE_HOURS), 78);   // 24 + 30 + 10 (Rahul) + 14 (Priya)
         assert.equal(Number(data.NET_AMOUNT), 7800);
@@ -446,17 +454,17 @@ describe('Invoicing (Admin)', () => {
     });
 
     it('the same hours are never billed twice', async () => {
-        await fails(POST(`${S}/generateInvoice`, { projectID: P1, periodFrom: '2026-09-01', periodTo: '2026-10-31' }, ADMIN), 409);
+        await fails(POST(`${S}/InvoiceSrv/PSAService.generateInvoice`, { projectID: P1, periodFrom: '2026-09-01', periodTo: '2026-10-31' }, ADMIN), 409);
     });
 
     it('Retainer: flat fee, each period only once', async () => {
-        const { data } = await POST(`${S}/generateInvoice`, { projectID: P3, periodFrom: '2026-10-01', periodTo: '2026-10-31' }, ADMIN);
+        const { data } = await POST(`${S}/InvoiceSrv/PSAService.generateInvoice`, { projectID: P3, periodFrom: '2026-10-01', periodTo: '2026-10-31' }, ADMIN);
         assert.equal(Number(data.NET_AMOUNT), 8000);
 
         // TS2 had hours on P1 and P3 - now all of them are billed
         assert.equal((await getTimesheet(TS2)).STATUS, 'Invoiced');
 
-        await fails(POST(`${S}/generateInvoice`, { projectID: P3, periodFrom: '2026-10-15', periodTo: '2026-11-15' }, ADMIN), 409);
+        await fails(POST(`${S}/InvoiceSrv/PSAService.generateInvoice`, { projectID: P3, periodFrom: '2026-10-15', periodTo: '2026-11-15' }, ADMIN), 409);
     });
 
     it('cancelling an invoice releases its hours to be billed again', async () => {
@@ -469,7 +477,7 @@ describe('Invoicing (Admin)', () => {
         await fails(POST(`${S}/InvoiceSrv(${retainer.NODE_KEY})/issueInvoice`, {}, ADMIN), 409);
 
         // the same period can be billed again
-        await POST(`${S}/generateInvoice`, { projectID: P3, periodFrom: '2026-10-01', periodTo: '2026-10-31' }, ADMIN);
+        await POST(`${S}/InvoiceSrv/PSAService.generateInvoice`, { projectID: P3, periodFrom: '2026-10-01', periodTo: '2026-10-31' }, ADMIN);
         assert.equal((await getTimesheet(TS2)).STATUS, 'Invoiced');
     });
 

@@ -239,16 +239,16 @@ There is one service, `@requires: 'authenticated-user' service PSAService` at `/
 | TaskSrv | (composition) | User READ; Admin `*` | `PROJECT_CODE`, `CRITICALITY` (burn ≥ 100 → 1, ≥ 80 → 2, else 3) |
 | TimesheetSrv | yes | User READ/WRITE/submitTimesheet `where EMPLOYEE.email = $user`; Admin `*` | `STATUS_CRITICALITY`, `IS_LOCKED` (true unless Draft/Rejected); actions `submitTimesheet()`, `importHours(rows)` |
 | TimesheetEntrySrv | (composition) | User `where PARENT.EMPLOYEE.email = $user`; Admin `*` | – |
-| ApprovalSrv | no, `@readonly`, `@cds.redirection.target: false` | Admin | projection on Timesheets `where STATUS = 'Submitted'`, Entries redirected to TimesheetEntrySrv; actions `approveTimesheet()`, `rejectTimesheet(reason)` |
+| ApprovalSrv | no, `@readonly`, `@cds.redirection.target: false` | Admin | projection on Timesheets `where STATUS <> 'Draft'` (decided timesheets stay visible with their status), Entries redirected to TimesheetEntrySrv; actions `approveTimesheet()`, `rejectTimesheet(reason)` |
 | InvoiceSrv | no, `@readonly` | Admin | `PAYMENT_STATUS` (Overdue when issued and past due), `STATUS_CRITICALITY`; actions `issueInvoice()`, `markInvoicePaid(paymentDate)`, `cancelInvoice()` |
 | ProjectTimeSrv | no, `@readonly`, `@cds.redirection.target: false` | Admin READ | hours booked on a project (Timesheets facet) |
 | SettingsSrv | yes | Admin READ/UPDATE (no create/delete) | – |
 | AuditLogSrv | no, `@readonly` | Admin READ | – |
 | AlertSrv | no, `@readonly` | Admin READ | `CRITICALITY` |
 
-Unbound operations:
-- `action generateInvoice(projectID, periodFrom, periodTo) returns InvoiceSrv` – Admin
-- `function whoAmI() returns WhoAmI` – all users
+Operations:
+- `generateInvoice(in : many $self, projectID, periodFrom, periodTo) returns InvoiceSrv` – Admin, bound to the InvoiceSrv **collection** so Fiori reloads the list after it (an unbound action does not refresh the table)
+- unbound `function whoAmI() returns WhoAmI` – all users
 - `function getBurnSummary(projectID) returns BurnSummary` – Admin: budget, consumed, remaining, %, status, planned / consumed hours, burn rate (approved hours per week since the start), projected completion (today + remaining hours / burn rate)
 
 Read-only **analytics projections** (Admin, `@cds.redirection.target: false`) for the KPI cards and the chart.
@@ -302,7 +302,7 @@ Manifest: `"i18n"` and `"@i18n"` models, `"title": "{{appTitle}}"`, `crossNaviga
 |---|---|---|
 | **Manager Home** (`home`, start page of the Admin) | **Analytical List Page** (List Report with `views` primary = `UI.PresentationVariant` → chart, secondary = `UI.LineItem`, Grid Table) on `ProjectAnalytics` | **KPI cards** in the header (manifest `keyPerformanceIndicators` → `UI.KPI` annotations): *Active Projects*, *At-Risk Budgets*, *Pending Approvals* (from `TimesheetAnalytics`); each opens a detail chart. **Chart** *Budget vs. Consumed per project* (`UI.Chart`, measures = `Aggregation.CustomAggregate` with `@Aggregation.default: #SUM`). **Table** with filters (client, billing type, budget status), column widths via `@HTML5.CssDefaults`; row → outbound navigation to `Project-manage`, which opens the object page because `ProjectSrv` has `@Common.SemanticKey: [PROJECT_CODE]`. **Buttons** (`UI.DataFieldForIntentBasedNavigation`) to Approvals, Billing Workbench, My Timesheets, Clients, Employees. |
 | **My Timesheets** (`timesheets`, User + Admin) | List Report + Object Page | Header: Total Hours, Billable Hours, Status. *Hours* table with inline creation (date, task value help, hours, billable checkbox, notes, task burn % in colour). *Week* section with submitted / approved dates. Buttons *Create/Save*, *Import Hours*, *Submit for Approval*. |
-| **Approve Timesheets** (`approvals`, Admin) | List Report + Object Page | Filters for employee and week. Multi-select *Approve* and *Reject* (reason dialog). |
+| **Approve Timesheets** (`approvals`, Admin) | List Report + Object Page | Filters for status (default *Submitted*), employee and week. *Approve* / *Reject* (reason dialog) both above the table (multi-select) and in the object page header. |
 | **Projects** (`projects`, Admin) | List Report + Object Page + sub object page (Milestone) | Header with project info, *Budget Used* progress, *Hours Used* progress, Budget Status, Remaining Budget. Header field group: client, **status**, manager, billing type. Facets: Overview (General incl. description/status/priority, Schedule incl. burn rate and projected completion, Budget), Milestones & Tasks (milestone status in colour), **Timesheets** (`TIME_ENTRIES`), Scope-Creep Alerts, Invoices, Change Log (created/changed by/at). *Recalculate Budget* action. |
 | **Billing Workbench** (`invoices`, Admin) | List Report + Object Page | **KPI cards** *Unbilled Hours* (`EntryAnalytics`), *Draft Invoices*, *Overdue Amount* (`InvoiceAnalytics`). *Generate Invoice* (project, period), *Issue*, *Mark as Paid* (payment date), *Cancel*. Status column shows *Overdue*. Header: total, status, due date. |
 | **Clients**, **Employees** (Admin) | List Report + Object Page | Master data with field groups and communication annotations. |

@@ -819,7 +819,7 @@ module.exports = cds.service.impl(async function () {
     // GENERATE INVOICE from approved billable hours
     // ==================================================
 
-    this.on('generateInvoice', async (req) => {
+    this.on('generateInvoice', InvoiceSrv, async (req) => {
 
         const { projectID, periodFrom, periodTo } = req.data;
 

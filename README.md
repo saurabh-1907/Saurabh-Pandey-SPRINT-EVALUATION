@@ -81,7 +81,7 @@ success toast after each action.
 |---|---|---|
 | **Manager Home** (start page) | Admin | **Analytical List Page** (FRD §9): KPI cards *Active Projects, At-Risk Budgets, Pending Approvals* (click → detail chart); chart *Budget vs. Consumed per project*; table with filters (client, billing type, budget status); row → Project object page; buttons to Approvals, Billing Workbench, My Timesheets, Clients, Employees |
 | **My Timesheets** | User, Admin | *Create* (week = current week, row defaults: week start, 8 h, billable) → add rows in *Hours* (task burn shown per row) → *Create* (save) → *Submit for Approval*; **Import Hours** pastes rows from a time tracker (FR-005) |
-| **Approve Timesheets** | Admin | select submitted timesheets → *Approve* or *Reject* (reason) |
+| **Approve Timesheets** | Admin | list opens with the *Submitted* timesheets → open one and press *Approve* or *Reject* (reason) in its header, or tick several rows and use *Approve* above the table; decided timesheets stay in the list as *Approved* / *Rejected* |
 | **Projects** | Admin | *Create* / *Edit* project (status, priority, description), fill *Budget*, add *Milestones* → open a milestone → add *Tasks*; header with code, client, status, budget health; facets Budget, Milestones & Tasks, **Timesheets** (all hours booked), Alerts, Invoices, Change Log; **burn rate and projected completion** (`getBurnSummary`) |
 | **Billing Workbench** (Invoices) | Admin | KPI cards *Unbilled Hours, Draft Invoices, Overdue Amount* (FRD §9); *Generate Invoice* (project + period) → *Issue* → *Mark as Paid* (payment date); **Cancel** (hours become billable again); issued invoices past the due date show as **Overdue** |
 | **Clients**, **Employees** | Admin | maintain master data |
@@ -133,7 +133,7 @@ srv/
   service.cds            OData V4 service PSAService (roles, drafts, actions)
   service.js             business logic (event handlers before / on / after)
   test.http              sample requests (REST Client)
-test/psa.test.js         41 automated tests (npm test)
+test/psa.test.js         42 automated tests (npm test)
 xs-security.json         XSUAA roles + role collections PSA_Admin / PSA_User
 mta.yaml                 Cloud Foundry deployment: psa-application-ui, -srv, -db-deployer
 .pipeline/config.yml     SAP Continuous Integration and Delivery
@@ -256,4 +256,4 @@ Pipeline **SAP Cloud Application Programming Model**: every push to `main` runs 
 
 ## Tests
 
-`npm test` – runs the 41 tests on an in-memory database with the local logins (no HANA / XSUAA needed).
+`npm test` – runs the 42 tests on an in-memory database with the local logins (no HANA / XSUAA needed).

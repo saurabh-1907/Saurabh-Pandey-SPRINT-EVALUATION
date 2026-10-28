@@ -10,7 +10,8 @@ annotate service.InvoiceSrv with {
     PROJECT @Common.Text: PROJECT.PROJECT_NAME @Common.TextArrangement: #TextOnly;
 };
 
-annotate service.generateInvoice with (
+annotate service.InvoiceSrv actions {
+    generateInvoice(
     projectID  @title: 'Project'
                @Common.ValueList: { CollectionPath: 'ProjectSrv', Parameters: [
                    { $Type: 'Common.ValueListParameterOut', LocalDataProperty: projectID, ValueListProperty: 'NODE_KEY' },
@@ -20,7 +21,8 @@ annotate service.generateInvoice with (
                ]},
     periodFrom @title: 'Period From',
     periodTo   @title: 'Period To'
-);
+    );
+};
 
 // ==================================================
 // FIELDS
@@ -47,7 +49,7 @@ annotate service.InvoiceSrv with @(
     UI.SelectionFields: [ STATUS, PROJECT_NODE_KEY, INVOICE_DATE ],
     UI.PresentationVariant: { SortOrder: [{ Property: INVOICE_NO, Descending: true }], Visualizations: ['@UI.LineItem'] },
     UI.LineItem: [
-        { $Type: 'UI.DataFieldForAction', Action: 'PSAService.EntityContainer/generateInvoice', Label: 'Generate Invoice' },
+        { $Type: 'UI.DataFieldForAction', Action: 'PSAService.generateInvoice', Label: 'Generate Invoice' },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.issueInvoice',    Label: 'Issue' },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.markInvoicePaid', Label: 'Mark as Paid' },
         { $Type: 'UI.DataFieldForAction', Action: 'PSAService.cancelInvoice',   Label: 'Cancel' },
@@ -107,6 +109,7 @@ annotate service.InvoiceSrv with @(
 // ==================================================
 
 annotate service.InvoiceSrv actions {
+    generateInvoice @(Common.SideEffects: { TargetEntities: ['in'] });   // reload the invoice list
     issueInvoice @(
         Core.OperationAvailable: { $edmJson: { $Eq: [ { $Path: 'in/STATUS' }, 'Draft' ] } },
         Common.SideEffects: { TargetEntities: ['in'] }
