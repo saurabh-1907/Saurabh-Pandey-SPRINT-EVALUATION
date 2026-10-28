@@ -1,5 +1,5 @@
-import cds from '@sap/cds';
-import { randomUUID } from 'crypto';
+const cds = require('@sap/cds');
+const { randomUUID } = require('crypto');
 
 const { INSERT, SELECT, UPDATE } = cds.ql;
 
@@ -37,7 +37,7 @@ const mondayOf = (date) => {
     return addDays(date, day === 0 ? -6 : 1 - day);
 };
 
-export default cds.service.impl(async function () {
+module.exports = cds.service.impl(async function () {
 
     const {
         EmployeeSrv,
@@ -819,7 +819,7 @@ export default cds.service.impl(async function () {
     // GENERATE INVOICE from approved billable hours
     // ==================================================
 
-    this.on('generateInvoice', async (req) => {
+    this.on('generateInvoice', InvoiceSrv, async (req) => {
 
         const { projectID, periodFrom, periodTo } = req.data;
 

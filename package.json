@@ -2,7 +2,6 @@
   "name": "psa-application",
   "version": "1.0.0",
   "description": "Professional Services Automation (PSA) - SAP CAP Node.js",
-  "type": "module",
   "dependencies": {
     "@cap-js/hana": "^3",
     "@sap/cds": "^10",
@@ -11,25 +10,41 @@
   "devDependencies": {
     "@cap-js/cds-test": "^1",
     "@cap-js/sqlite": "^3",
-    "@sap/cds-dk": "^10"
+    "@sap/cds-dk": "^10",
+    "mbt": "^1.2.49",
+    "rimraf": "^5.0.5"
   },
   "scripts": {
     "start": "cds-serve",
-    "watch": "cds watch",
-    "test": "CDS_ENV=test node --test test/psa.test.js",
-    "build:apps": "mkdir -p gen/srv/app && cp -r app/index.html app/home app/projects app/timesheets app/approvals app/invoices app/clients app/employees app/settings app/auditlog gen/srv/app/"
+    "watch": "cds watch --open index.html",
+    "watch-home": "cds watch --open home/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-projects": "cds watch --open projects/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-timesheets": "cds watch --open timesheets/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-approvals": "cds watch --open approvals/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-invoices": "cds watch --open invoices/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-clients": "cds watch --open clients/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-employees": "cds watch --open employees/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-settings": "cds watch --open settings/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-auditlog": "cds watch --open auditlog/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "test": "node --test test/psa.test.js",
+    "build": "rimraf resources mta_archives && mbt build --mtar archive",
+    "deploy": "cf deploy mta_archives/archive.mtar --retries 1",
+    "undeploy": "cf undeploy psa-application --delete-services --delete-service-keys --delete-service-brokers"
   },
+  "sapux": [
+    "app/home",
+    "app/projects",
+    "app/timesheets",
+    "app/approvals",
+    "app/invoices",
+    "app/clients",
+    "app/employees",
+    "app/settings",
+    "app/auditlog"
+  ],
   "cds": {
     "requires": {
-      "db": "hana",
-      "auth": "xsuaa",
-      "[test]": {
-        "db": {
-          "kind": "sqlite",
-          "credentials": {
-            "url": ":memory:"
-          }
-        },
+      "[development]": {
         "auth": {
           "kind": "mocked",
           "users": {
@@ -56,6 +71,14 @@
             "*": false
           }
         }
+      },
+      "[hybrid]": {
+        "db": "hana",
+        "auth": "xsuaa"
+      },
+      "[production]": {
+        "db": "hana",
+        "auth": "xsuaa"
       }
     }
   },

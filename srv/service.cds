@@ -1,4 +1,5 @@
-using { psa.db as database } from '../db/schema';
+using { psa.db as db } from '../db/schema';
+using { CDSViews } from '../db/CDSView';
 
 // Login via XSUAA. The login e-mail ($user) links a user to an Employees record.
 // Two roles:
@@ -28,20 +29,20 @@ service PSAService {
     @odata.draft.enabled
     @restrict: [{ grant: ['READ', 'UPDATE'], to: 'Admin' }]
     entity SettingsSrv
-    as projection on database.master.Settings;
+    as projection on db.master.Settings;
 
     // every write and status change: who, when, what
     @readonly
     @restrict: [{ grant: 'READ', to: 'Admin' }]
     entity AuditLogSrv
-    as projection on database.transaction.AuditLog;
+    as projection on db.transaction.AuditLog;
 
     // ---------------- Master data ----------------
 
     @odata.draft.enabled
     @restrict: [{ grant: '*', to: 'Admin' }]
     entity ClientSrv
-    as projection on database.master.Clients;
+    as projection on db.master.Clients;
 
     @odata.draft.enabled
     @restrict: [
@@ -49,7 +50,7 @@ service PSAService {
         { grant: '*',    to: 'Admin' }
     ]
     entity EmployeeSrv
-    as projection on database.master.Employees {
+    as projection on db.master.Employees {
         *,
         nameFirst || ' ' || nameLast as fullName : String(130)
     };
@@ -59,7 +60,7 @@ service PSAService {
     @odata.draft.enabled
     @restrict: [{ grant: '*', to: 'Admin' }]
     entity ProjectSrv
-    as projection on database.transaction.Projects {
+    as projection on db.transaction.Projects {
         *,
         case
             when PLANNED_HOURS > 0 then CONSUMED_HOURS * 100 / PLANNED_HOURS
@@ -80,7 +81,7 @@ service PSAService {
     @cds.redirection.target: false
     @restrict: [{ grant: 'READ', to: 'Admin' }]
     entity ProjectTimeSrv
-    as projection on database.transaction.ProjectTimeEntries;
+    as projection on CDSViews.ProjectTimeEntries;
 
     // FRD 7.1: budget, hours, burn rate and projected completion of a project
     type BurnSummary {
@@ -103,7 +104,7 @@ service PSAService {
     // CRITICALITY = colour in Fiori (1 red, 2 orange, 3 green)
     @restrict: [{ grant: '*', to: 'Admin' }]
     entity BudgetSrv
-    as projection on database.transaction.Budgets {
+    as projection on db.transaction.Budgets {
         *,
         case
             when BUDGET_STATUS = 'Breached' then 1
@@ -114,7 +115,7 @@ service PSAService {
 
     @restrict: [{ grant: '*', to: 'Admin' }]
     entity MilestoneSrv
-    as projection on database.transaction.Milestones {
+    as projection on db.transaction.Milestones {
         *,
         case
             when STATUS = 'Completed'   then 3
@@ -129,7 +130,7 @@ service PSAService {
         { grant: '*',    to: 'Admin' }
     ]
     entity TaskSrv
-    as projection on database.transaction.Tasks {
+    as projection on db.transaction.Tasks {
         *,
         MILESTONE.PROJECT.PROJECT_CODE as PROJECT_CODE,
         case
@@ -147,7 +148,7 @@ service PSAService {
         { grant: '*', to: 'Admin' }
     ]
     entity TimesheetSrv
-    as projection on database.transaction.Timesheets {
+    as projection on db.transaction.Timesheets {
         *,
         case
             when STATUS = 'Rejected'  then 1
@@ -174,20 +175,25 @@ service PSAService {
         { grant: '*', to: 'Admin' }
     ]
     entity TimesheetEntrySrv
-    as projection on database.transaction.TimesheetEntries;
+    as projection on db.transaction.TimesheetEntries;
 
-    // ---------------- Approvals (Admin): submitted timesheets ----------------
+    // ---------------- Approvals (Admin): timesheets sent for approval ----------------
+    // Submitted ones are to be approved; approved / rejected ones stay visible with their status
 
     @readonly
     @cds.redirection.target: false
     @restrict: [{ grant: '*', to: 'Admin' }]
     entity ApprovalSrv
-    as projection on database.transaction.Timesheets {
+    as projection on db.transaction.Timesheets {
         *,
         Entries : redirected to TimesheetEntrySrv on Entries.PARENT.NODE_KEY = NODE_KEY,
-        2 as STATUS_CRITICALITY : Integer
+        case
+            when STATUS = 'Rejected'  then 1
+            when STATUS = 'Submitted' then 2
+            else 3
+        end as STATUS_CRITICALITY : Integer
     }
-    where STATUS = 'Submitted' actions {
+    where STATUS <> 'Draft' actions {
 
         action approveTimesheet()
             returns String;
@@ -201,7 +207,7 @@ service PSAService {
     @readonly
     @restrict: [{ grant: '*', to: 'Admin' }]
     entity InvoiceSrv
-    as projection on database.transaction.Invoices {
+    as projection on db.transaction.Invoices {
         *,
         // shown status: an issued invoice past its due date is "Overdue"
         case
@@ -226,14 +232,15 @@ service PSAService {
         // Draft / Issued -> Cancelled: the hours become billable again
         action cancelInvoice()
             returns String;
-    };
 
-    @requires: 'Admin'
-    action generateInvoice(
-        projectID  : UUID,
-        periodFrom : Date,
-        periodTo   : Date
-    ) returns InvoiceSrv;
+        // bound to the invoice list (button above the table): Fiori reloads the list afterwards
+        action generateInvoice(
+            in         : many $self,
+            projectID  : UUID,
+            periodFrom : Date,
+            periodTo   : Date
+        ) returns InvoiceSrv;
+    };
 
     // ---------------- Manager Home (Analytical List Page, Admin) ----------------
     // one row per project with its budget, so Fiori can group, sum and chart it
@@ -242,7 +249,7 @@ service PSAService {
     @cds.redirection.target: false
     @restrict: [{ grant: 'READ', to: 'Admin' }]
     entity ProjectAnalytics
-    as projection on database.transaction.Projects {
+    as projection on db.transaction.Projects {
         key NODE_KEY,
             PROJECT_CODE,
             PROJECT_NAME,
@@ -276,7 +283,7 @@ service PSAService {
     @cds.redirection.target: false
     @restrict: [{ grant: 'READ', to: 'Admin' }]
     entity TimesheetAnalytics
-    as projection on database.transaction.Timesheets {
+    as projection on db.transaction.Timesheets {
         key NODE_KEY,
             WEEK_START,
             STATUS,
@@ -288,7 +295,7 @@ service PSAService {
     @cds.redirection.target: false
     @restrict: [{ grant: 'READ', to: 'Admin' }]
     entity InvoiceAnalytics
-    as projection on database.transaction.Invoices {
+    as projection on db.transaction.Invoices {
         key NODE_KEY,
             INVOICE_NO,
             STATUS,
@@ -306,7 +313,7 @@ service PSAService {
     @cds.redirection.target: false
     @restrict: [{ grant: 'READ', to: 'Admin' }]
     entity EntryAnalytics
-    as projection on database.transaction.TimesheetEntries {
+    as projection on db.transaction.TimesheetEntries {
         key NODE_KEY,
             WORK_DATE,
             TASK.MILESTONE.PROJECT.PROJECT_NAME as PROJECT_NAME : String(255),
@@ -321,7 +328,7 @@ service PSAService {
     @readonly
     @restrict: [{ grant: 'READ', to: 'Admin' }]
     entity AlertSrv
-    as projection on database.transaction.Alerts {
+    as projection on db.transaction.Alerts {
         *,
         case when THRESHOLD >= 100 then 1 else 2 end as CRITICALITY : Integer
     };

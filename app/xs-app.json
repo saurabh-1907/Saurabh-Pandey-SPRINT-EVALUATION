@@ -1,0 +1,78 @@
+{
+    "welcomeFile": "/index.html",
+    "authenticationMethod": "route",
+    "sessionTimeout": 100,
+    "logout": {
+        "logoutEndpoint": "/do/logout",
+        "logoutPage": "/"
+    },
+    "routes": [
+        {
+            "source": "^/index.html$",
+            "target": "index.html",
+            "localDir": "./",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/home/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "home/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/projects/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "projects/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/timesheets/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "timesheets/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/approvals/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "approvals/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/invoices/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "invoices/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/clients/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "clients/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/employees/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "employees/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/settings/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "settings/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/auditlog/webapp/(.*)$",
+            "target": "$1",
+            "localDir": "auditlog/webapp/",
+            "authenticationType": "xsuaa"
+        },
+        {
+            "source": "^/(.*)$",
+            "target": "$1",
+            "destination": "srv-api",
+            "authenticationType": "xsuaa",
+            "csrfProtection": true
+        }
+    ]
+}

@@ -3,10 +3,12 @@
   "sap.app": {
     "id": "psa.projects",
     "type": "application",
-    "title": "Projects",
+    "i18n": "i18n/i18n.properties",
     "applicationVersion": {
       "version": "1.0.0"
     },
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
     "dataSources": {
       "mainService": {
         "uri": "/odata/v4/psa/",
@@ -16,10 +18,32 @@
           "odataVersion": "4.0"
         }
       }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "Project-manage": {
+          "semanticObject": "Project",
+          "action": "manage",
+          "title": "{{Project-manage.flpTitle}}",
+          "subTitle": "{{Project-manage.flpSubtitle}}",
+          "signature": {
+            "parameters": {},
+            "additionalParameters": "allowed"
+          }
+        }
+      }
     }
   },
   "sap.ui": {
     "technology": "UI5",
+    "icons": {
+      "icon": "",
+      "favIcon": "",
+      "phone": "",
+      "phone@2": "",
+      "tablet": "",
+      "tablet@2": ""
+    },
     "deviceTypes": {
       "desktop": true,
       "tablet": true,
@@ -27,13 +51,14 @@
     }
   },
   "sap.ui5": {
-    "flexEnabled": false,
+    "flexEnabled": true,
     "dependencies": {
       "minUI5Version": "1.153.0",
       "libs": {
         "sap.m": {},
         "sap.ui.core": {},
-        "sap.fe.templates": {}
+        "sap.fe.templates": {},
+        "sap.f": {}
       }
     },
     "contentDensities": {
@@ -41,6 +66,16 @@
       "cozy": true
     },
     "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "psa.projects.i18n.i18n",
+          "supportedLocales": [
+            ""
+          ],
+          "fallbackLocale": ""
+        }
+      },
       "": {
         "dataSource": "mainService",
         "preload": true,
@@ -49,25 +84,53 @@
           "autoExpandSelect": true,
           "earlyRequests": true
         }
+      },
+      "@i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "uri": "i18n/i18n.properties",
+        "settings": {
+          "supportedLocales": [
+            ""
+          ],
+          "fallbackLocale": ""
+        }
       }
     },
+    "resources": {
+      "css": []
+    },
     "routing": {
-      "config": {},
+      "config": {
+        "flexibleColumnLayout": {
+          "defaultTwoColumnLayoutType": "TwoColumnsMidExpanded",
+          "defaultThreeColumnLayoutType": "ThreeColumnsMidExpanded"
+        },
+        "routerClass": "sap.f.routing.Router"
+      },
       "routes": [
         {
           "pattern": ":?query:",
           "name": "ProjectSrvList",
-          "target": "ProjectSrvList"
+          "target": [
+            "ProjectSrvList"
+          ]
         },
         {
           "pattern": "ProjectSrv({key}):?query:",
           "name": "ProjectSrvObjectPage",
-          "target": "ProjectSrvObjectPage"
+          "target": [
+            "ProjectSrvList",
+            "ProjectSrvObjectPage"
+          ]
         },
         {
           "pattern": "ProjectSrv({key})/MILESTONES({key2}):?query:",
           "name": "MilestoneSrvObjectPage",
-          "target": "MilestoneSrvObjectPage"
+          "target": [
+            "ProjectSrvList",
+            "ProjectSrvObjectPage",
+            "MilestoneSrvObjectPage"
+          ]
         }
       ],
       "targets": {
@@ -97,7 +160,9 @@
                 }
               }
             }
-          }
+          },
+          "controlAggregation": "beginColumnPages",
+          "contextPattern": ""
         },
         "ProjectSrvObjectPage": {
           "type": "Component",
@@ -116,7 +181,9 @@
               },
               "controlConfiguration": {}
             }
-          }
+          },
+          "controlAggregation": "midColumnPages",
+          "contextPattern": "/ProjectSrv({key})"
         },
         "MilestoneSrvObjectPage": {
           "type": "Component",
@@ -138,9 +205,17 @@
                 }
               }
             }
-          }
+          },
+          "controlAggregation": "endColumnPages",
+          "contextPattern": "/ProjectSrv({key})/MILESTONES({key2})"
         }
       }
+    },
+    "rootView": {
+      "viewName": "sap.fe.templates.RootContainer.view.Fcl",
+      "type": "XML",
+      "async": true,
+      "id": "appRootView"
     }
   },
   "sap.fiori": {

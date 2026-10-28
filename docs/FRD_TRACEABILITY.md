@@ -86,9 +86,9 @@ Legend: ✅ implemented · 🟡 implemented in a simplified way · ⬜ out of sc
 
 | Item | Status | Where |
 |---|---|---|
-| MTA with db, srv, app modules (`mbt build`, `cf deploy`) | ✅ | `mta.yaml`: `psa-application-db-deployer`, `psa-application-srv`, approuter `psa-application` |
+| MTA with db, srv, app modules (`mbt build`, `cf deploy`) | ✅ | `mta.yaml`: `psa-application-db-deployer`, `psa-application-srv`, approuter `psa-application-ui` (in `app/`) |
 | CI/CD pipeline (NFR-006) | 🟡 | `.pipeline/config.yml` for SAP Continuous Integration and Delivery: build + `npm test` on every push; deploy step ready, off until org/space are set. One space instead of DEV / QAS / PROD |
-| Unit tests (service logic, roll-up, validations) | ✅ | `test/psa.test.js` – 41 tests with `@cap-js/cds-test` (instead of Jest) |
+| Unit tests (service logic, roll-up, validations) | ✅ | `test/psa.test.js` – 42 tests with `@cap-js/cds-test` (instead of Jest) |
 | UI tests | 🟡 | checked manually in the browser, no automated UI tests |
 
 ## 8. Not built (needs paid services or external systems)
