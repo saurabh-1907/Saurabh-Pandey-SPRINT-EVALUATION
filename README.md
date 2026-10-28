@@ -3,6 +3,7 @@
 Professional Services Automation app built with the SAP Cloud Application Programming Model.
 Requirements: [`requiremnets.txt`](requiremnets.txt) and [`docs/requirements`](docs/requirements).
 How every FRD / PPT requirement is covered: [`docs/FRD_TRACEABILITY.md`](docs/FRD_TRACEABILITY.md).
+Project overview slides (10 slides with screenshots): [`docs/PSA_Project_Overview.pptx`](docs/PSA_Project_Overview.pptx).
 
 ## Problem → Solution
 
