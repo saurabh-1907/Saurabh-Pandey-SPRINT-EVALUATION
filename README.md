@@ -12,7 +12,7 @@ How every FRD / PPT requirement is covered: [`docs/FRD_TRACEABILITY.md`](docs/FR
 | **No real-time tracking** – budget seen at month end | When an admin approves a timesheet, hours roll up instantly: Entry → Task → Milestone → Project → Budget |
 | **Disconnected invoicing** – spreadsheets            | `generateInvoice` builds the invoice from approved billable hours (T&M, Fixed, Retainer); billed hours are linked so they are never billed twice |
 
-## Data model (same style as the reference SAP-Repository project)
+## Data model (same layout as the sample project SEP-22-2026-SKILLS-CAPJS)
 
 Hierarchy from requirements.txt:
 
@@ -26,12 +26,13 @@ Project ──< Invoice      Project ──< Alert
 | File | Content |
 |---|---|
 | `db/common.cds` | reusable types (`Guid`, `Email`, `String255`, `AmountT` …), status enums, aspects `Amount` and `Address` |
-| `db/master.cds` | `context master`: **Clients** (uses `common.Address`; industry, status), **Employees** (`cuid`, a manager = `isManager = true`), **Settings** (alert thresholds, at-risk %, tax %, payment days) |
-| `db/schema.cds` | `context transaction`: **Projects** (status, priority), **Budgets** (1 per project), **Milestones** (status set automatically), **Tasks** (priority, dates), **Timesheets** (header: one employee, one week; submitted / approved date), **TimesheetEntries** (items: one day, one task, linked with `PARENT`), **Invoices** (uses `common.Amount`; payment date), **Alerts**, **AuditLog**, view **ProjectTimeEntries** |
+| `db/schema.cds` | `context master`: **Clients** (uses `common.Address`; industry, status), **Employees** (`cuid`, a manager = `isManager = true`), **Settings** (alert thresholds, at-risk %, tax %, payment days)<br>`context transaction`: **Projects** (status, priority), **Budgets** (1 per project), **Milestones** (status set automatically), **Tasks** (priority, dates), **Timesheets** (header: one employee, one week; submitted / approved date), **TimesheetEntries** (items: one day, one task, linked with `PARENT`), **Invoices** (uses `common.Amount`; payment date), **Alerts**, **AuditLog** |
+| `db/CDSView.cds` | `context CDSViews`: view **ProjectTimeEntries** (hours booked on a project: entry + task + employee + invoice) |
+| `db/i18n/i18n*.properties` | field labels (`@(title: '{i18n>KEY}')`) in English, German (`_de`) and Hindi (`_hi`) |
 
 All entities use the CAP `managed` aspect (created / changed by and at), as the FRD asks.
 
-Like the reference project: keys are `key NODE_KEY : common.Guid`, fields are UPPERCASE,
+Like the sample project: keys are `key NODE_KEY : common.Guid`, fields are UPPERCASE,
 items point to their header with `PARENT`, CSV files are named `psa.db-master.*.csv` / `psa.db-transaction.*.csv`,
 and the service exposes projections named `...Srv` (`ProjectSrv`, `TimesheetSrv` …).
 
@@ -58,7 +59,7 @@ Only SAP technology is used:
 | **PSA_User**  | User  | only **My Timesheets** | own timesheets only (any open task can be picked) |
 
 - A User gets **no data** of projects, budgets, clients, invoices or other employees – the server does not return it
-  (`@restrict` in `srv/psa-service.cds`), and the launchpad does not offer those apps.
+  (`@restrict` in `srv/service.cds`), and the launchpad does not offer those apps.
 - Users log in with their **SAP account** (XSUAA login page); roles are assigned in the BTP cockpit
   (Security → Role Collections). Deployed app: use the collections named **PSA_Admin (org-space)** / **PSA_User (org-space)**.
 - The login e-mail links a user to an **Employee** (`Employees.email`) – an admin creates the employee in the
@@ -67,8 +68,10 @@ Only SAP technology is used:
 
 ## Fiori apps (all Fiori Elements, built from CDS annotations)
 
-Every screen is SAP Fiori Elements: the pages are generated from `app/annotations.cds` and the
-projections in `srv/psa-service.cds`; there is no hand-written view, controller or CSS.
+Every screen is SAP Fiori Elements: the pages are generated from the annotations in
+`app/<app>/annotations.cds` (collected by `app/services.cds`) and the projections in `srv/service.cds`;
+there is no hand-written view, controller or CSS. List Report apps open the object page in a
+**flexible column layout** (list and details side by side).
 Start page: **Admin → Manager Home**, **User → My Timesheets**. Object pages show progress bars for budget burn,
 hours used, milestone completion and task burn, coloured status icons (green / orange / red) and a
 success toast after each action.
@@ -103,20 +106,50 @@ Tax (default 18 %) is added; due date = invoice date + payment days (default 30)
 
 ## Project structure
 
+Same skeleton as the sample project
+[SEP-22-2026-SKILLS-CAPJS](https://github.com/SantoshSIJBS/SEP-22-2026-SKILLS-CAPJS):
+
 ```
-db/                    data model + sample data (db/data/*.csv)
-srv/psa-service.cds    OData V4 service PSAService (roles, drafts)
-srv/psa-service.js     business logic
-app/index.html         SAP Fiori launchpad (sandbox); start page per role (rootIntent)
-app/home/webapp        Manager Home (Fiori Elements Analytical List Page on ProjectAnalytics)
-app/annotations.cds    Fiori Elements UI annotations
-app/<name>/webapp      Fiori Elements apps: timesheets, approvals, projects, invoices, clients, employees, settings, auditlog
-.deploy/app-router     SAP Approuter (XSUAA login)
-xs-security.json       XSUAA roles + role collections PSA_Admin / PSA_User
-mta.yaml               Cloud Foundry deployment
-test/psa.test.js       41 automated tests (npm test)
-docs/FRD_TRACEABILITY.md  FRD / PPT requirement -> implementation
+app/
+  package.json           SAP Approuter (XSUAA login): npm start
+  xs-app.json            routes: index.html + <app>/webapp served from this folder, everything else -> srv-api (CAP)
+  default-env.json       local destination srv-api -> http://localhost:4004
+  services.cds           collects the annotations of all apps
+  index.html             SAP Fiori launchpad (sandbox); start page per role (rootIntent)
+  <app>/                 one Fiori Elements app per folder:
+    annotations.cds        UI annotations of the app
+    webapp/                manifest.json, Component.js, index.html, i18n/i18n.properties
+    package.json, ui5.yaml, eslint.config.mjs, README.md
+                         apps: home (Analytical List Page), projects, timesheets, approvals,
+                         invoices, clients, employees, settings, auditlog
+db/
+  common.cds             reusable types, enums, aspects
+  schema.cds             context master + context transaction (tables)
+  CDSView.cds            context CDSViews (read-only views)
+  i18n/                  field labels: i18n.properties, i18n_de.properties, i18n_hi.properties
+  data/                  sample data (CSV)
+srv/
+  service.cds            OData V4 service PSAService (roles, drafts, actions)
+  service.js             business logic (event handlers before / on / after)
+  test.http              sample requests (REST Client)
+test/psa.test.js         41 automated tests (npm test)
+xs-security.json         XSUAA roles + role collections PSA_Admin / PSA_User
+mta.yaml                 Cloud Foundry deployment: psa-application-ui, -srv, -db-deployer
+.pipeline/config.yml     SAP Continuous Integration and Delivery
+docs/                    FRD traceability, code walkthrough, requirements
 ```
+
+## Run locally (no BTP needed)
+
+```bash
+npm install
+npm run watch            # http://localhost:4004/index.html - launchpad
+npm run watch-projects   # one app: watch-home, watch-timesheets, watch-approvals, ... watch-auditlog
+```
+
+Local logins (mocked, `package.json` → `cds.requires.[development]`):
+**meera.iyer@psa-demo.com / admin** (Admin) and **rahul.sharma@psa-demo.com / user** (User).
+Data is in memory and reset on every restart. Sample requests: `srv/test.http`.
 
 ## Run in SAP Business Application Studio (hybrid: SAP HANA Cloud + XSUAA)
 
@@ -156,8 +189,8 @@ cds watch --profile hybrid
 Run from the **project root** (the XSUAA binding is stored there in `.cdsrc-private.json`):
 
 ```bash
-npm install --prefix .deploy/app-router
-cds bind --exec --profile hybrid -- npm start --prefix .deploy/app-router
+npm install --prefix app
+cds bind --exec --profile hybrid -- npm start --prefix app
 ```
 
 Open port **5000** (*Open in a New Tab*) → SAP login page → **Fiori launchpad** with the home page.
@@ -182,17 +215,17 @@ cd ~/projects/Saurabh-Pandey-Sprint-Evaluation
 git pull
 npm install
 cf login                                   # API endpoint of your subaccount, e.g. https://api.cf.us10-001.hana.ondemand.com
-mbt build                                  # creates mta_archives/psa-application_1.0.0.mtar
-cf deploy mta_archives/psa-application_1.0.0.mtar
+npm run build                              # mbt build -> mta_archives/archive.mtar
+npm run deploy                             # cf deploy mta_archives/archive.mtar
 ```
 
 `cf deploy` creates/updates: the HDI container `psa-application-db` (`hdi-shared`), the XSUAA instance
 `psa-application-auth` (plan `application`), the CAP server `psa-application-srv` (512 MB),
-the approuter `psa-application` (256 MB) and deploys tables + sample data.
+the approuter `psa-application-ui` (256 MB, serves the launchpad and apps from `app/`) and deploys tables + sample data.
 
 **After the deployment**
 
-1. `cf apps` → copy the URL of **psa-application** (the approuter) – this is the public link of the app.
+1. `cf apps` → copy the URL of **psa-application-ui** (the approuter) – this is the public link of the app.
 2. BTP cockpit → Subaccount → Security → **Role Collections**:
    - **PSA_Admin (org-space)** → add admin users
    - **PSA_User (org-space)** → add employees
@@ -200,7 +233,8 @@ the approuter `psa-application` (256 MB) and deploys tables + sample data.
 3. Every user must exist in **Employees** with the same e-mail as the login (Employees app as admin, or the CSV before deploying).
 4. Users open the link from anywhere → SAP login → Fiori launchpad. Logout: `<link>/do/logout`.
 
-**Updating** after code changes: `git pull`, `mbt build`, `cf deploy mta_archives/psa-application_1.0.0.mtar` again.
+**Updating** after code changes: `git pull`, `npm run build`, `npm run deploy` again.
+Remove everything (apps and service instances): `npm run undeploy`.
 
 **Trial notes:** HANA Cloud stops every night – start it in HANA Cloud Central; then `cf restart psa-application-srv` if needed.
 
@@ -221,4 +255,4 @@ Pipeline **SAP Cloud Application Programming Model**: every push to `main` runs 
 
 ## Tests
 
-`npm test` – runs the 41 tests on an in-memory database with test logins (no HANA / XSUAA needed).
+`npm test` – runs the 41 tests on an in-memory database with the local logins (no HANA / XSUAA needed).

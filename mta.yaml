@@ -1,92 +1,95 @@
 _schema-version: 3.3.0
 ID: psa-application
-version: 1.0.0
 description: "Professional Services Automation (PSA) - SAP CAP Node.js"
+version: 1.0.0
+modules:
+# Approuter (app/): XSUAA login, serves app/index.html (launchpad) and app/<app>/webapp, forwards /odata to srv-api
+- name: psa-application-ui
+  type: nodejs
+  path: app
+  requires:
+  - name: srv-api
+    group: destinations
+    properties:
+      forwardAuthToken: true
+      name: srv-api # must be used in xs-app.json as well
+      strictSSL: true
+      url: ~{srv-url}
+  - name: psa-application-auth
+  provides:
+  - name: app-api
+    properties:
+      app-protocol: ${protocol}
+      app-uri: ${default-uri}
+  parameters:
+    buildpack: nodejs_buildpack
+    instances: 1
+    memory: 256M
+    disk-quota: 512M
+  build-parameters:
+    builder: npm-ci
+    ignore: ["node_modules/", "default-env.json"]
+# CAP service (srv/ + compiled model, built by cds build into gen/srv)
+- name: psa-application-srv
+  type: nodejs
+  path: gen/srv
+  requires:
+  - name: psa-application-auth
+  - name: psa-application-db
+  provides:
+  - name: srv-api # required by consumers of CAP services (e.g. approuter)
+    properties:
+      srv-url: ${default-url}
+  parameters:
+    buildpack: nodejs_buildpack
+    instances: 1
+    memory: 512M # fits the BTP free tier / trial quota
+  build-parameters:
+    builder: npm-ci
+# HDI deployer: tables, views and CSV data (db/) into SAP HANA Cloud
+- name: psa-application-db-deployer
+  type: hdb
+  path: gen/db
+  requires:
+  - name: psa-application-db
+  parameters:
+    buildpack: nodejs_buildpack
+    memory: 256M
+resources:
+- name: psa-application-auth
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      oauth2-configuration:
+        credential-types:
+        - binding-secret
+        - x509
+        redirect-uris:
+        - https://*~{app-api/app-uri}/**
+      tenant-mode: dedicated
+      xsappname: psa-application-${org}-${space}
+      role-collections:
+      - name: 'PSA_Admin (${org}-${space})'
+        role-template-references:
+        - '$XSAPPNAME.Admin'
+      - name: 'PSA_User (${org}-${space})'
+        role-template-references:
+        - '$XSAPPNAME.User'
+    path: ./xs-security.json
+    service: xsuaa
+    service-plan: application
+  requires:
+  - name: app-api
+- name: psa-application-db
+  type: com.sap.xs.hdi-container
+  parameters:
+    service: hana
+    service-plan: hdi-shared # free tier: needs a SAP HANA Cloud instance (plan hana-free)
 parameters:
   enable-parallel-deployments: true
 build-parameters:
   before-all:
-    - builder: custom
-      commands:
-        - npm ci
-        - npx cds build --production
-        - npm run build:apps # copy Fiori apps + launchpad next to the CAP server
-modules:
-  - name: psa-application-srv
-    type: nodejs
-    path: gen/srv
-    parameters:
-      instances: 1
-      memory: 512M # fits the BTP free tier / trial quota
-      buildpack: nodejs_buildpack
-    build-parameters:
-      builder: npm-ci
-    provides:
-      - name: srv-api # required by consumers of CAP services (e.g. approuter)
-        properties:
-          srv-url: ${default-url}
-    requires:
-      - name: psa-application-db
-      - name: psa-application-auth
-
-  - name: psa-application-db-deployer
-    type: hdb
-    path: gen/db
-    parameters:
-      memory: 256M
-      buildpack: nodejs_buildpack
-    requires:
-      - name: psa-application-db
-  - name: psa-application
-    type: approuter.nodejs
-    path: .deploy/app-router
-    build-parameters:
-      ignore: ["node_modules/", "default-env.json"]
-    parameters:
-      keep-existing-routes: true
-      disk-quota: 256M
-      memory: 256M
-    requires:
-      - name: srv-api
-        group: destinations
-        properties:
-          name: srv-api # must be used in xs-app.json as well
-          url: ~{srv-url}
-          forwardAuthToken: true
-      - name: psa-application-auth
-    provides:
-      - name: app-api
-        properties:
-          app-protocol: ${protocol}
-          app-uri: ${default-uri}
-
-resources:
-  - name: psa-application-db
-    type: com.sap.xs.hdi-container
-    parameters:
-      service: hana
-      service-plan: hdi-shared # free tier: needs a SAP HANA Cloud instance (plan hana-free)
-  - name: psa-application-auth
-    type: org.cloudfoundry.managed-service
-    parameters:
-      service: xsuaa
-      service-plan: application
-      path: ./xs-security.json
-      config:
-        xsappname: psa-application-${org}-${space}
-        tenant-mode: dedicated
-        oauth2-configuration:
-          credential-types:
-            - "binding-secret"
-            - "x509"
-          redirect-uris:
-            - https://*~{app-api/app-uri}/**
-        role-collections:
-          - name: 'PSA_Admin (${org}-${space})'
-            role-template-references:
-              - '$XSAPPNAME.Admin'
-          - name: 'PSA_User (${org}-${space})'
-            role-template-references:
-              - '$XSAPPNAME.User'
-    requires:
-      - name: app-api
+  - builder: custom
+    commands:
+    - npm ci
+    - npx cds build --production

@@ -44,10 +44,15 @@
     }
   ],
   "oauth2-configuration": {
+    "token-validity": 9000,
     "redirect-uris": [
       "https://*.applicationstudio.cloud.sap/**",
       "https://*.hana.ondemand.com/**",
       "http://localhost:5000/**"
     ]
-  }
+  },
+  "authorities": [
+    "$ACCEPT_GRANTED_AUTHORITIES"
+  ],
+  "xsenableasyncservice": "true"
 }

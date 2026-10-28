@@ -1,0 +1,142 @@
+### Requests against the local CAP server: npm run watch (http://localhost:4004)
+### Logins (mocked, package.json -> cds.requires.[development].auth):
+###   Admin: meera.iyer@psa-demo.com / admin      User: rahul.sharma@psa-demo.com / user
+### Active records of draft entities are addressed with IsActiveEntity=true
+
+@server = http://localhost:4004/odata/v4/psa
+@admin = Basic meera.iyer@psa-demo.com:admin
+@user = Basic rahul.sharma@psa-demo.com:user
+
+### Metadata of the service
+GET {{server}}/$metadata
+Authorization: {{admin}}
+
+
+### Who is logged in (roles, linked employee)
+GET {{server}}/whoAmI()
+Authorization: {{user}}
+
+
+### $top, $skip, $count, $select, $filter, $expand
+
+### Read all clients
+GET {{server}}/ClientSrv
+Authorization: {{admin}}
+
+### Read the first 2 projects
+GET {{server}}/ProjectSrv?$top=2
+Authorization: {{admin}}
+
+### Read projects 3 and later by skipping the first 2
+GET {{server}}/ProjectSrv?$skip=2
+Authorization: {{admin}}
+
+### Number of employees
+GET {{server}}/EmployeeSrv/$count
+Authorization: {{admin}}
+
+### Only some fields of the employees
+GET {{server}}/EmployeeSrv?$select=fullName,jobTitle,email,isManager
+Authorization: {{admin}}
+
+### Only T&M projects (eq, ne, gt, ge, lt, le)
+GET {{server}}/ProjectSrv?$filter=BILLING_TYPE eq 'T%26M'
+Authorization: {{admin}}
+
+### Tasks that used 80 % or more of their estimate
+GET {{server}}/TaskSrv?$filter=BURN_PERCENT ge 80&$select=TASK_NAME,ESTIMATED_HOURS,ACTUAL_HOURS,BURN_PERCENT
+Authorization: {{admin}}
+
+### Project with budget, milestones and tasks
+GET {{server}}/ProjectSrv(NODE_KEY=40000000-0000-4000-8000-000000000001,IsActiveEntity=true)?$expand=BUDGET,MILESTONES($expand=TASKS)
+Authorization: {{admin}}
+
+
+### ---------------- Functions ----------------
+
+### Budget, hours, burn rate and projected completion of a project
+GET {{server}}/getBurnSummary(projectID=40000000-0000-4000-8000-000000000001)
+Authorization: {{admin}}
+
+### Manager Home KPI: number of active projects ($apply = aggregation)
+GET {{server}}/ProjectAnalytics?$apply=aggregate(ACTIVE_COUNT)
+Authorization: {{admin}}
+
+
+### ---------------- Timesheets (User) ----------------
+
+### My timesheets (row-level restriction: only own)
+GET {{server}}/TimesheetSrv?$filter=IsActiveEntity eq true
+Authorization: {{user}}
+
+### Import hours from a time tracker into the draft timesheet (date;task;hours;billable;notes)
+POST {{server}}/TimesheetSrv(NODE_KEY=70000000-0000-4000-8000-000000000004,IsActiveEntity=true)/PSAService.importHours
+Authorization: {{user}}
+Content-Type: application/json
+
+{
+  "rows": "2026-10-13;Data migration;4;yes;imported"
+}
+
+### Submit the timesheet for approval (instance-bound action)
+POST {{server}}/TimesheetSrv(NODE_KEY=70000000-0000-4000-8000-000000000004,IsActiveEntity=true)/PSAService.submitTimesheet
+Authorization: {{user}}
+Content-Type: application/json
+
+{}
+
+
+### ---------------- Approvals (Admin) ----------------
+
+### Timesheets waiting for approval
+GET {{server}}/ApprovalSrv
+Authorization: {{admin}}
+
+### Approve a timesheet: hours roll up to task, milestone, project and budget
+POST {{server}}/ApprovalSrv(70000000-0000-4000-8000-000000000002)/PSAService.approveTimesheet
+Authorization: {{admin}}
+Content-Type: application/json
+
+{}
+
+### Reject a timesheet (reason is mandatory)
+POST {{server}}/ApprovalSrv(70000000-0000-4000-8000-000000000003)/PSAService.rejectTimesheet
+Authorization: {{admin}}
+Content-Type: application/json
+
+{
+  "reason": "Please split the hours by task"
+}
+
+
+### ---------------- Billing (Admin) ----------------
+
+### Generate an invoice for a project and period (unbound action)
+POST {{server}}/generateInvoice
+Authorization: {{admin}}
+Content-Type: application/json
+
+{
+  "projectID": "40000000-0000-4000-8000-000000000001",
+  "periodFrom": "2026-09-01",
+  "periodTo": "2026-10-31"
+}
+
+### Draft invoices
+GET {{server}}/InvoiceSrv?$filter=STATUS eq 'Draft'
+Authorization: {{admin}}
+
+
+### ---------------- Configuration and audit (Admin) ----------------
+
+### Settings (thresholds, tax, payment terms)
+GET {{server}}/SettingsSrv(ID=1,IsActiveEntity=true)
+Authorization: {{admin}}
+
+### Latest 10 audit log entries
+GET {{server}}/AuditLogSrv?$orderby=TIMESTAMP desc&$top=10
+Authorization: {{admin}}
+
+### A User cannot read clients (403)
+GET {{server}}/ClientSrv
+Authorization: {{user}}

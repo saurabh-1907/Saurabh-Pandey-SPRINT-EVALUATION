@@ -1,7 +1,10 @@
 # Code Walkthrough – Enterprise PSA (SAP CAP + HANA + Fiori + XSUAA)
 
 This guide explains every file of the project, in the order you would create it by hand,
-and what each line or block does. Follow it top to bottom in SAP Business Application Studio (BAS)
+and what each line or block does. The folder layout follows the sample project
+[SEP-22-2026-SKILLS-CAPJS](https://github.com/SantoshSIJBS/SEP-22-2026-SKILLS-CAPJS)
+(approuter in `app/`, one `annotations.cds` per app, `db/schema.cds` + `db/CDSView.cds` + `db/i18n`,
+`srv/service.cds` + `srv/service.js`). Follow it top to bottom in SAP Business Application Studio (BAS)
 to rebuild the project from an empty folder.
 
 ---
@@ -9,28 +12,30 @@ to rebuild the project from an empty folder.
 ## 0. The big picture
 
 ```
-Browser ──► Approuter (.deploy/app-router) ──► CAP server (srv/) ──► SAP HANA Cloud (db/)
+Browser ──► Approuter (app/) ──► CAP server (srv/) ──► SAP HANA Cloud (db/)
              │  XSUAA login, /do/logout          │  OData V4 /odata/v4/psa
-             │  forwards the JWT token           │  roles, validations, roll-up, invoices
+             │  serves app/index.html and        │  roles, validations, roll-up, invoices
+             │  app/<name>/webapp itself,        │
+             │  forwards /odata with the token   │
              ▼
-   SAP Fiori launchpad (app/index.html) with 10 Fiori Elements apps (app/<name>/webapp)
-   – the screens are generated from app/annotations.cds
+   SAP Fiori launchpad (app/index.html) with 9 Fiori Elements apps (app/<name>/webapp)
+   – the screens are generated from app/<name>/annotations.cds (collected by app/services.cds)
 ```
 
 | Layer | Folder / file | Technology |
 |---|---|---|
-| Data model | `db/common.cds`, `db/master.cds`, `db/schema.cds`, `db/data/*.csv` | CDS → SAP HANA Cloud tables |
-| Service | `srv/psa-service.cds` | CAP OData V4 service, authorization |
-| Business logic | `srv/psa-service.js` | Node.js event handlers |
-| UI | `app/annotations.cds`, `app/<app>/webapp/*`, `app/index.html` | Fiori Elements, SAPUI5, Fiori launchpad sandbox |
-| Security | `xs-security.json`, `.deploy/app-router/*` | XSUAA, SAP Approuter |
+| Data model | `db/common.cds`, `db/schema.cds`, `db/CDSView.cds`, `db/i18n/*`, `db/data/*.csv` | CDS → SAP HANA Cloud tables and views |
+| Service | `srv/service.cds`, `srv/test.http` | CAP OData V4 service, authorization |
+| Business logic | `srv/service.js` | Node.js event handlers |
+| UI | `app/services.cds`, `app/<app>/annotations.cds`, `app/<app>/webapp/*`, `app/index.html` | Fiori Elements, SAPUI5, Fiori launchpad sandbox |
+| Security | `xs-security.json`, `app/package.json`, `app/xs-app.json` | XSUAA, SAP Approuter |
 | Deployment | `mta.yaml`, `.pipeline/config.yml` | MTA on Cloud Foundry, SAP CI/CD |
 | Tests | `test/psa.test.js` | `node --test` + `@cap-js/cds-test` |
 
 **Request flow (example: Admin approves a timesheet)**
 1. The Fiori app calls `POST /odata/v4/psa/ApprovalSrv(<key>)/approveTimesheet` through the approuter.
 2. The approuter checks the XSUAA session and forwards the call with the user's token to CAP.
-3. CAP checks `@restrict` (Admin only), then runs `this.on('approveTimesheet', …)` in `psa-service.js`.
+3. CAP checks `@restrict` (Admin only), then runs `this.on('approveTimesheet', …)` in `service.js`.
 4. The handler sets the status, then `recalculateProject()` updates task → milestone → project → budget → alerts in HANA.
 5. Fiori refreshes the page (because of `Common.SideEffects`) and shows the toast message.
 
@@ -47,9 +52,11 @@ cds init psa-application                 # creates package.json, db/, srv/, app/
 cd psa-application
 npm i @sap/cds @cap-js/hana @sap/xssec   # runtime: CAP, HANA driver, XSUAA token check
 npm i -D @sap/cds-dk @cap-js/sqlite @cap-js/cds-test   # dev: CLI, local DB for tests, test helper
+npm i -D mbt rimraf                      # dev: MTA build tool, clean-up of old archives
 ```
 
-3. Create these folders: `db/data`, `test`, `.deploy/app-router`, `.pipeline`, `docs`.
+3. Create these folders: `db/data`, `db/i18n`, `test`, `.pipeline`, `docs`
+   (`app/` and `srv/` exist already; the approuter goes directly into `app/`, chapter 12.2).
 4. Create the files in the order of the following chapters.
 
 ---
@@ -61,7 +68,6 @@ npm i -D @sap/cds-dk @cap-js/sqlite @cap-js/cds-test   # dev: CLI, local DB for 
   "name": "psa-application",                 // npm package name, also used by mta.yaml
   "version": "1.0.0",
   "description": "Professional Services Automation (PSA) - SAP CAP Node.js",
-  "type": "module",                           // use ES modules: import/export instead of require
   "dependencies": {
     "@cap-js/hana": "^3",                     // SAP HANA database adapter (production)
     "@sap/cds": "^10",                        // CAP runtime
@@ -69,37 +75,43 @@ npm i -D @sap/cds-dk @cap-js/sqlite @cap-js/cds-test   # dev: CLI, local DB for 
   },
   "devDependencies": {
     "@cap-js/cds-test": "^1",                 // GET/POST helpers for tests
-    "@cap-js/sqlite": "^3",                   // in-memory DB for tests only
-    "@sap/cds-dk": "^10"                      // cds CLI: cds watch, cds build, cds deploy
+    "@cap-js/sqlite": "^3",                   // in-memory DB for local runs and tests
+    "@sap/cds-dk": "^10",                     // cds CLI: cds watch, cds build, cds deploy
+    "mbt": "^1.2.49",                         // Cloud MTA Build Tool (npm run build)
+    "rimraf": "^5.0.5"                        // deletes old build results
   },
   "scripts": {
     "start": "cds-serve",                     // how Cloud Foundry starts the server
-    "watch": "cds watch",                     // local development with auto-restart
-    "test": "CDS_ENV=test node --test test/psa.test.js",   // run tests with the [test] profile
-    "build:apps": "mkdir -p gen/srv/app && cp -r app/index.html app/home … app/auditlog gen/srv/app/"
-                                              // copies launchpad + Fiori apps next to the built server,
-                                              // so the CAP server serves the UI in the cloud
+    "watch": "cds watch --open index.html",   // local development with auto-restart, opens the launchpad
+    "watch-projects": "cds watch --open projects/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+                                              // one script per app: watch-home, watch-timesheets, … watch-auditlog
+    "test": "node --test test/psa.test.js",   // run the tests (development profile: SQLite + mocked users)
+    "build": "rimraf resources mta_archives && mbt build --mtar archive",   // -> mta_archives/archive.mtar
+    "deploy": "cf deploy mta_archives/archive.mtar --retries 1",
+    "undeploy": "cf undeploy psa-application --delete-services --delete-service-keys --delete-service-brokers"
   },
+  "sapux": [ "app/home", "app/projects", … "app/auditlog" ],   // tells SAP Fiori tools in BAS where the apps are
   "cds": {
     "requires": {
-      "db": "hana",                           // production database = SAP HANA Cloud
-      "auth": "xsuaa",                        // production login = XSUAA
-      "[test]": {                             // profile used only when CDS_ENV=test
-        "db":   { "kind": "sqlite", "credentials": { "url": ":memory:" } },
-        "auth": {
-          "kind": "mocked",                   // fake logins for tests (basic auth)
+      "[development]": {                      // local runs (cds watch) and npm test
+        "auth": {                             // the database is SQLite in memory by default
+          "kind": "mocked",                   // fake logins (basic auth)
           "users": {
             "meera.iyer@psa-demo.com":   { "password": "admin", "roles": ["Admin"] },
             "rahul.sharma@psa-demo.com": { "password": "user",  "roles": ["User"] },
             "alice": false, "bob": false, …, "*": false   // switch off CAP's default demo users
           }
         }
-      }
+      },
+      "[hybrid]":     { "db": "hana", "auth": "xsuaa" },   // cds watch --profile hybrid (BAS + real BTP services)
+      "[production]": { "db": "hana", "auth": "xsuaa" }    // Cloud Foundry
     }
   },
   "engines": { "node": ">=22" }              // Node version for Cloud Foundry / BAS
 }
 ```
+
+The code uses CommonJS (`require` / `module.exports`), like the sample project, so there is no `"type": "module"`.
 
 *(Comments are only for explanation – JSON itself does not allow comments.)*
 
@@ -144,42 +156,51 @@ type InvoiceStatus   : … 'Draft' | 'Issued' | 'Paid' | 'Cancelled'   // "Overd
 **Aspects** – a group of fields that is "mixed into" entities with `entity X : Amount { … }`:
 
 ```cds
-aspect Amount  { GROSS_AMOUNT; NET_AMOUNT; TAX_AMOUNT : AmountT; CURRENCY : Currency; }
+aspect Amount  { GROSS_AMOUNT : AmountT @(title: '{i18n>GROSS_AMOUNT}'); NET_AMOUNT …; TAX_AMOUNT …;
+                 CURRENCY : Currency @(title: '{i18n>CURRENCY_CODE}'); }
                                               // CURRENCY becomes a foreign key column CURRENCY_code
-aspect Address { STREET; POSTAL_CODE; CITY; COUNTRY; BUILDING; }
+aspect Address { STREET @(title: '{i18n>STREET}'); POSTAL_CODE; CITY; COUNTRY; BUILDING; }
 ```
+`@(title: '{i18n>KEY}')` = the field label, read from `db/i18n/i18n.properties` (chapter 5.3).
 
 ---
 
-## 4. `db/master.cds` – master data
+## 4. `db/schema.cds` – part 1: `context master` (master data)
+
+`db/schema.cds` holds all tables in two contexts, like the sample project: `master` (this chapter)
+and `transaction` (chapter 5).
 
 ```cds
 namespace psa.db;                                   // tables are named psa_db_master_Clients …
+using { psa.common as cmn } from './common';
 using { cuid, managed } from '@sap/cds/common';     // cuid = key ID : UUID; managed = createdAt/By, modifiedAt/By
-using { psa.common as common } from './common';
+using { CDSViews } from './CDSView';                // the view ProjectTimeEntries (chapter 5.2)
 
 context master {                                    // a context groups entities: psa.db.master.Clients
 ```
 
+Every field gets a label from the i18n file, e.g. `CLIENT_NAME : cmn.String255 @(title: '{i18n>CLIENT_NAME}');`
+(left out in the short listings below).
+
 **Clients**
 ```cds
-    entity Clients : common.Address, managed {      // + 5 address fields + 4 managed fields
-        key NODE_KEY : common.Guid;                 // primary key (reference-project style)
-        CLIENT_NAME    : common.String255;
-        CONTACT_PERSON : common.String64;
-        EMAIL          : common.Email;
-        PHONE          : common.PhoneNumber;
-        INDUSTRY       : common.String64;
-        STATUS         : common.ClientStatus default 'Active';   // default used on insert
+    entity Clients : cmn.Address, managed {         // + 5 address fields + 4 managed fields
+        key NODE_KEY : cmn.Guid  @(title: '{i18n>NODE_KEY}');   // primary key (sample-project style)
+        CLIENT_NAME    : cmn.String255;
+        CONTACT_PERSON : cmn.String64;
+        EMAIL          : cmn.Email;
+        PHONE          : cmn.PhoneNumber;
+        INDUSTRY       : cmn.String64;
+        STATUS         : cmn.ClientStatus default 'Active';   // default used on insert
     }
 ```
 
 **Employees** – also the login link: `email` must equal the XSUAA login e-mail.
 ```cds
     entity Employees : cuid, managed {              // key ID : UUID (from cuid)
-        nameFirst; nameLast : common.String64;
-        email : common.Email;  phoneNumber; jobTitle; joinDate : Date;
-        Currency_code : String(3);  hourlyRate : common.AmountT;   // internal cost rate
+        nameFirst; nameLast : cmn.String64;
+        email : cmn.Email;  phoneNumber; jobTitle; joinDate : Date;
+        Currency_code : String(3);  hourlyRate : cmn.AmountT;   // internal cost rate
         isManager : Boolean default false;          // "Manager" of the FRD = employee with this flag
         isActive  : Boolean default true;           // inactive employees cannot log time
         manager   : Association to Employees;       // line manager -> column manager_ID
@@ -191,8 +212,8 @@ context master {                                    // a context groups entities
     entity Settings : managed {
         key ID : Integer;
         ALERT_THRESHOLDS : String(50) default '75,90,100';   // comma separated
-        AT_RISK_PERCENT  : common.Percent default 80;
-        TAX_PERCENT      : common.Percent default 18;
+        AT_RISK_PERCENT  : cmn.Percent default 80;
+        TAX_PERCENT      : cmn.Percent default 18;
         PAYMENT_DAYS     : Integer default 30;
     }
 }
@@ -200,15 +221,12 @@ context master {                                    // a context groups entities
 
 ---
 
-## 5. `db/schema.cds` – transactional data
+## 5. `db/schema.cds` – part 2: `context transaction`, `db/CDSView.cds`, `db/i18n`
+
+### 5.1 `context transaction` (same file, below `context master`)
 
 ```cds
-namespace psa.db;
-using { psa.common as common } from './common';
-using { psa.db.master } from './master';            // to reference master.Clients / master.Employees
-using { managed } from '@sap/cds/common';
-
-context transaction {
+context transaction {                               // master.Clients / master.Employees can be used directly
 ```
 
 **Key ideas**
@@ -220,21 +238,21 @@ context transaction {
 **Projects**
 ```cds
     entity Projects : managed {
-        key NODE_KEY : common.Guid;
+        key NODE_KEY : cmn.Guid;
         PROJECT_CODE; PROJECT_NAME; DESCRIPTION : String(500);
-        BILLING_TYPE : common.BillingType;
-        STATUS   : common.ProjectStatus default 'Active';
-        PRIORITY : common.Priority default 'Medium';
+        BILLING_TYPE : cmn.BillingType;
+        STATUS   : cmn.ProjectStatus default 'Active';
+        PRIORITY : cmn.Priority default 'Medium';
         START_DATE; END_DATE : Date;
-        PLANNED_HOURS : common.Hours;
-        CONSUMED_HOURS : common.Hours default 0;    // filled by the roll-up
+        PLANNED_HOURS : cmn.Hours;
+        CONSUMED_HOURS : cmn.Hours default 0;    // filled by the roll-up
         CLIENT  : Association to master.Clients;    // CLIENT_NODE_KEY
         MANAGER : Association to master.Employees;  // MANAGER_ID
         BUDGET     : Composition of one Budgets   on BUDGET.PROJECT = $self;      // exactly one budget
         MILESTONES : Composition of many Milestones on MILESTONES.PROJECT = $self;
         ALERTS     : Association to many Alerts   on ALERTS.PROJECT = $self;      // read-only lists
         INVOICES   : Association to many Invoices on INVOICES.PROJECT = $self;
-        TIME_ENTRIES : Association to many ProjectTimeEntries on TIME_ENTRIES.PROJECT = $self;
+        TIME_ENTRIES : Association to many CDSViews.ProjectTimeEntries on TIME_ENTRIES.PROJECT = $self;
     }
 ```
 
@@ -250,9 +268,9 @@ context transaction {
 **Timesheets** (header: one employee, one week)
 ```cds
         WEEK_START; WEEK_END : Date;
-        TOTAL_HOURS; BILLABLE_HOURS : common.Hours default 0;
-        STATUS : common.TimesheetStatus default 'Draft';
-        SUBMITTED_DATE; APPROVED_DATE : Date;  REJECTION_REASON : common.String255;
+        TOTAL_HOURS; BILLABLE_HOURS : cmn.Hours default 0;
+        STATUS : cmn.TimesheetStatus default 'Draft';
+        SUBMITTED_DATE; APPROVED_DATE : Date;  REJECTION_REASON : cmn.String255;
         EMPLOYEE, APPROVED_BY : Association to master.Employees;
         Entries : Composition of many TimesheetEntries on Entries.PARENT = $self;
 ```
@@ -265,24 +283,50 @@ context transaction {
         INVOICE : Association to Invoices;          // set when billed -> never billed twice
 ```
 
-**ProjectTimeEntries** – a database **view** (`as select from`) that joins entry + task + employee:
-```cds
-    entity ProjectTimeEntries as select from TimesheetEntries {
-        key NODE_KEY, WORK_DATE, HOURS, IS_BILLABLE, NOTES,
-        TASK.TASK_NAME as TASK_NAME,                // path expression = automatic LEFT JOIN
-        PARENT.STATUS  as TIMESHEET_STATUS,
-        PARENT.EMPLOYEE.nameFirst || ' ' || PARENT.EMPLOYEE.nameLast as EMPLOYEE_NAME : String(130),
-        INVOICE.INVOICE_NO as INVOICE_NO,
-        TASK.MILESTONE.PROJECT as PROJECT           // exposes the association so Projects can link back
-    };
-```
-
 **AuditLog**: `TIMESTAMP, USER_ID, ACTION, ENTITY, ENTITY_KEY, DETAILS` – written by the logic, never edited.
 
-**Invoices** `: common.Amount, managed`: invoice no, period, invoice / due / payment date,
+**Invoices** `: cmn.Amount, managed`: invoice no, period, invoice / due / payment date,
 billable hours, status, `PROJECT`, `Entries : Association to many TimesheetEntries on Entries.INVOICE = $self`.
 
 **Alerts**: `THRESHOLD, CONSUMED_PERCENT, MESSAGE, PROJECT, TASK` (task empty = project alert).
+
+### 5.2 `db/CDSView.cds` – read-only views
+
+Views live in their own file in `context CDSViews` (sample-project style). On HANA they become SQL views.
+
+```cds
+using { psa.db.transaction } from './schema';
+
+context CDSViews {
+    // hours booked on a project: entry + task + employee + invoice in one row (Timesheets facet)
+    define view ![ProjectTimeEntries] as select from transaction.TimesheetEntries {
+        key NODE_KEY, WORK_DATE, HOURS, IS_BILLABLE, NOTES,
+        TASK.TASK_NAME as ![TASK_NAME],             // path expression = automatic LEFT JOIN
+        @title: '{i18n>TIMESHEET_STATUS}'
+        PARENT.STATUS  as ![TIMESHEET_STATUS],
+        @title: '{i18n>EMPLOYEE}'
+        PARENT.EMPLOYEE.nameFirst || ' ' || PARENT.EMPLOYEE.nameLast as ![EMPLOYEE_NAME] : String(130),
+        @title: '{i18n>INVOICE}'
+        INVOICE.INVOICE_NO as ![INVOICE_NO],
+        TASK.MILESTONE.PROJECT as ![PROJECT]        // exposes the association so Projects can link back
+    };
+}
+```
+`schema.cds` and `CDSView.cds` use each other (`Projects.TIME_ENTRIES` points to the view, the view reads
+the tables) – CDS allows this.
+
+### 5.3 `db/i18n/` – field labels in three languages
+
+```properties
+# i18n.properties (English, default)        i18n_de.properties          i18n_hi.properties
+PROJECT_CODE=Project Code                   PROJECT_CODE=Projektcode    PROJECT_CODE=परियोजना कोड
+BUDGET_STATUS=Budget Status                 BUDGET_STATUS=Budgetstatus  BUDGET_STATUS=बजट स्थिति
+…
+```
+- `@(title: '{i18n>PROJECT_CODE}')` on a field → CAP puts the text of the user's language into `$metadata`
+  (browser language or `?sap-language=de`). Fiori shows it as label and column header.
+- The service projections and all apps inherit these labels, so `app/<app>/annotations.cds` only sets a
+  `@title` where a screen needs a different text (e.g. `PAYMENT_STATUS` → "Status").
 
 ---
 
@@ -298,10 +342,11 @@ billable hours, status, `PROJECT`, `Entries : Association to many TimesheetEntri
 
 ---
 
-## 7. `srv/psa-service.cds` – the OData service
+## 7. `srv/service.cds` – the OData service
 
 ```cds
-using { psa.db as database } from '../db/schema';
+using { psa.db as db } from '../db/schema';
+using { CDSViews } from '../db/CDSView';
 
 @requires: 'authenticated-user'      // nobody without login gets anything
 service PSAService {                 // URL: /odata/v4/psa
@@ -311,7 +356,7 @@ service PSAService {                 // URL: /odata/v4/psa
 
 | Construct | Meaning |
 |---|---|
-| `entity XSrv as projection on database.…` | exposes a table under a new name; `*` = all columns |
+| `entity XSrv as projection on db.…` | exposes a table under a new name; `*` = all columns |
 | `@odata.draft.enabled` | Fiori "Edit / Save / Discard draft" handling (draft table created by CAP) |
 | `@restrict: [{ grant: …, to: …, where: … }]` | authorization: which role may do which event; `where` = row filter |
 | `@readonly` | no create/update/delete through the API |
@@ -353,14 +398,15 @@ makes CAP add this condition to every query, so a User only ever sees his own ti
 
 ---
 
-## 8. `srv/psa-service.js` – business logic
+## 8. `srv/service.js` – business logic
 
 The file has the same name as the `.cds` file, so CAP loads it automatically as the implementation.
+It is a CommonJS module (`require` / `module.exports`), like the sample project.
 
 ### 8.1 Header (lines 1–38)
 ```js
-import cds from '@sap/cds';
-import { randomUUID } from 'crypto';               // new keys for alerts, invoices, audit rows
+const cds = require('@sap/cds');
+const { randomUUID } = require('crypto');          // new keys for alerts, invoices, audit rows
 const { INSERT, SELECT, UPDATE } = cds.ql;         // CAP query builders
 
 const DEFAULT_SETTINGS = { ALERT_THRESHOLDS: '75,90,100', AT_RISK_PERCENT: 80, TAX_PERCENT: 18, PAYMENT_DAYS: 30 };
@@ -375,7 +421,7 @@ const mondayOf = (date) => { const day = …getUTCDay();               // 0 = Su
 
 ### 8.2 The service implementation function
 ```js
-export default cds.service.impl(async function () {
+module.exports = cds.service.impl(async function () {
     const { EmployeeSrv, ProjectSrv, … , SettingsSrv, AuditLogSrv } = this.entities;  // entity handles
 ```
 Everything below registers **event handlers**:
@@ -492,11 +538,29 @@ Handlers:
 
 `req.notify(text)` = success toast in Fiori; `req.warn(text)` = warning dialog; `req.reject(code, text)` = error.
 
+### 8.10 `srv/test.http` – try the service by hand
+Sample requests for the REST Client (BAS / VS Code: *Send Request* above each `###` block): `$metadata`,
+`whoAmI()`, `$top` / `$skip` / `$count` / `$select` / `$filter` / `$expand`, `getBurnSummary`, `$apply`,
+import hours, submit, approve, reject, `generateInvoice`, settings, audit log and a 403 check.
+Logins in the file: `Authorization: Basic meera.iyer@psa-demo.com:admin` (Admin) or the User.
+
 ---
 
-## 9. `app/annotations.cds` – the screens
+## 9. `app/services.cds` + `app/<app>/annotations.cds` – the screens
 
-Fiori Elements builds every page from these annotations. Start with `using PSAService from '../srv/psa-service';`.
+Fiori Elements builds every page from annotations. Each app keeps its own annotations next to its
+`webapp` folder, and `app/services.cds` collects them, like the sample project:
+
+```cds
+// app/services.cds
+using from './home/annotations';
+using from './projects/annotations';
+…
+using from './auditlog/annotations';
+```
+
+Every `app/<app>/annotations.cds` starts with
+`using PSAService as service from '../../srv/service';` and then `annotate service.ProjectSrv with @( … );`.
 
 ### 9.1 Annotation vocabulary used
 
@@ -525,24 +589,24 @@ Fiori Elements builds every page from these annotations. Start with `using PSASe
 | `Common.SideEffects: { TargetEntities: ['in'] }` | refresh the page after the action |
 | `Capabilities.InsertRestrictions.Insertable: false` | hide the *Create* button |
 
-### 9.2 Sections of the file
-1. **Value helps** – client, manager, assignee, task (with project code and status), employee texts, `generateInvoice` parameters, reject reason as multi-line text.
-2. **Field labels** for every entity, and technical fields (`CRITICALITY`, keys) hidden.
-3. **Projects app** – `HeaderInfo` (triangle icon); filter fields; table with budget / hours progress bars; header: project info (client, status, manager, billing type), Budget Used, Hours Used, Budget Status, Remaining Budget; sections Overview (General, Schedule with burn rate / projected completion, Budget), Milestones & Tasks, Timesheets, Scope-Creep Alerts, Invoices, Change Log. Budget, Milestone (status colour, completion bar), Task (burn bar) and `ProjectTimeSrv` (hours list) annotations.
-4. **My Timesheets** – header: total, billable, status; buttons *Import Hours*, *Submit for Approval*; *Hours* table (date, task, hours, billable, notes, task burn %); *Week* group with submitted / approved dates.
-5. **Approvals** – list with employee, week, hours, submitted on; *Approve* and *Reject* buttons.
-6. **Billing Workbench** – *Generate Invoice*, *Issue*, *Mark as Paid*, *Cancel*; status column `PAYMENT_STATUS` (shows Overdue); detail with amounts and billed hours.
-7. **Clients / Employees** – lists, contact / address / work groups.
-8. **Actions** – `OperationAvailable` (Submit/Import only for an active Draft/Rejected timesheet; Issue only Draft; Paid only Issued; Cancel Draft/Issued; Recalculate only on the saved project) and `SideEffects`.
-9. **Manager Home (ALP)** – on `ProjectAnalytics`:
+### 9.2 What is in which file
+1. **Value helps** – in the app that uses them: client, manager, assignee (projects), task (timesheets), line manager (employees), `generateInvoice` parameters (invoices), reject reason as multi-line text (approvals).
+2. **Fields** – labels come from `db/i18n` (chapter 5.3); each file only adds `@mandatory`, `@UI.Hidden` for technical fields (`CRITICALITY`, keys), quick info, multi-line text, units and labels for calculated fields.
+3. **`projects/annotations.cds`** – `HeaderInfo` (triangle icon); filter fields; table with budget / hours progress bars; header: project info (client, status, manager, billing type), Budget Used, Hours Used, Budget Status, Remaining Budget; sections Overview (General, Schedule with burn rate / projected completion, Budget), Milestones & Tasks, Timesheets, Scope-Creep Alerts, Invoices, Change Log. Budget, Milestone (status colour, completion bar), Task (burn bar) and `ProjectTimeSrv` (hours list) annotations.
+4. **`timesheets/annotations.cds`** – header: total, billable, status; buttons *Import Hours*, *Submit for Approval*; *Hours* table (date, task, hours, billable, notes, task burn %); *Week* group with submitted / approved dates.
+5. **`approvals/annotations.cds`** – list with employee, week, hours, submitted on; *Approve* and *Reject* buttons.
+6. **`invoices/annotations.cds`** (Billing Workbench) – *Generate Invoice*, *Issue*, *Mark as Paid*, *Cancel*; status column `PAYMENT_STATUS` (shows Overdue); detail with amounts and billed hours.
+7. **`clients/annotations.cds`, `employees/annotations.cds`** – lists, contact / address / work groups.
+8. **Actions** (in the file of the app that has the button) – `OperationAvailable` (Submit/Import only for an active Draft/Rejected timesheet; Issue only Draft; Paid only Issued; Cancel Draft/Issued; Recalculate only on the saved project) and `SideEffects`.
+9. **`home/annotations.cds`** (Manager Home, ALP) – on `ProjectAnalytics`:
    - `Aggregation.ApplySupported` (the entity can be grouped and summed with `$apply`);
    - `Aggregation.CustomAggregate #FIELD : 'Edm.Decimal'` + `@Aggregation.default: #SUM` on each measure (needed by KPI cards and charts);
    - `UI.Chart` (bar chart budget vs. consumed per project), `UI.LineItem` (table, widths via `@HTML5.CssDefaults`), `UI.PresentationVariant` (chart + table);
    - `UI.KPI #ActiveProjects / #AtRiskBudgets` (+ `#PendingApprovals` on `TimesheetAnalytics`): `DataPoint` (value, title, colour rule), `Detail` chart;
    - `UI.DataFieldForIntentBasedNavigation` buttons to the other apps;
-   - `@Common.SemanticKey: [PROJECT_CODE]` on `ProjectSrv`, so a row opens the project directly.
-10. **Billing KPIs** – `EntryAnalytics` (Unbilled Hours) and `InvoiceAnalytics` (Draft Invoices, Overdue Amount) the same way.
-11. **Settings** and **Audit Log** apps.
+   - `@Common.SemanticKey: [PROJECT_CODE]` on `ProjectSrv` (in `projects/annotations.cds`), so a row opens the project directly.
+10. **Billing KPIs** (in `invoices/annotations.cds`) – `EntryAnalytics` (Unbilled Hours) and `InvoiceAnalytics` (Draft Invoices, Overdue Amount) the same way.
+11. **`settings/annotations.cds`** and **`auditlog/annotations.cds`**.
 
 **How to write it by hand:** add one block per entity, check the result in the browser (`cds watch`
 → open the app → *Ctrl+Shift+R*), then add the next block. The BAS *Page Map* / annotation editor can generate
@@ -555,40 +619,74 @@ Fiori Elements builds every page from these annotations. Start with `using PSASe
 ### 10.1 Generate one app (BAS)
 `View → Command Palette → Fiori: Open Application Generator` → **List Report Page** → Data source
 *Use a Local CAP Project* → service `PSAService` → main entity (e.g. `ProjectSrv`) → module name `projects`,
-namespace `psa`. Repeat for each app. The generator creates the three files below; then adjust them as described.
+namespace `psa`, page layout **Flexible Column Layout**. Repeat for each app (Manager Home: **Analytical List Page**).
+The generator creates the app folder like in the sample project:
+
+```
+app/projects/
+  annotations.cds        UI annotations (add it to app/services.cds)
+  package.json           UI5 tooling for BAS (npm start / Fiori tools preview)
+  ui5.yaml               UI5 tooling config: SAPUI5 from the CDN, live reload, launchpad preview
+  eslint.config.mjs      lint rules of SAP Fiori tools
+  README.md              template, main entity, how to start
+  webapp/manifest.json, Component.js, index.html, i18n/i18n.properties
+```
+Then adjust the files as described below.
 
 ### 10.2 `manifest.json` (Projects as example)
 ```json
 "sap.app": {
   "id": "psa.projects",                         // = namespace.module, used in launchpad and index.html
-  "type": "application", "title": "Projects",
+  "type": "application",
+  "i18n": "i18n/i18n.properties",               // texts of this app
+  "title": "{{appTitle}}", "description": "{{appDescription}}",   // {{key}} = text from webapp/i18n
   "dataSources": { "mainService": { "uri": "/odata/v4/psa/", "type": "OData",
-                                    "settings": { "odataVersion": "4.0" } } }   // the CAP service URL
+                                    "settings": { "odataVersion": "4.0" } } },  // the CAP service URL
+  "crossNavigation": { "inbounds": { "Project-manage": {        // intent of this app in a launchpad
+      "semanticObject": "Project", "action": "manage",
+      "title": "{{Project-manage.flpTitle}}", "subTitle": "{{Project-manage.flpSubtitle}}" } } }
 },
 "sap.ui5": {
-  "dependencies": { "minUI5Version": "1.153.0", "libs": { "sap.m": {}, "sap.ui.core": {}, "sap.fe.templates": {} } },
-  "models": { "": { "dataSource": "mainService",
-                    "settings": { "operationMode": "Server", "autoExpandSelect": true, "earlyRequests": true } } },
+  "flexEnabled": true,                          // UI adaptation / personalization allowed
+  "dependencies": { "minUI5Version": "1.153.0",
+                    "libs": { "sap.m": {}, "sap.ui.core": {}, "sap.fe.templates": {}, "sap.f": {} } },   // sap.f = FCL
+  "models": {
+    "i18n":  { "type": "sap.ui.model.resource.ResourceModel", "settings": { "bundleName": "psa.projects.i18n.i18n" } },
+    "":      { "dataSource": "mainService",
+               "settings": { "operationMode": "Server", "autoExpandSelect": true, "earlyRequests": true } },
                                                 // OData V4 model; autoExpandSelect = only load shown fields
+    "@i18n": { "type": "sap.ui.model.resource.ResourceModel", "uri": "i18n/i18n.properties" } },
   "routing": {
-    "routes": [                                  // URL pattern -> page
-      { "pattern": ":?query:",                                  "target": "ProjectSrvList" },
-      { "pattern": "ProjectSrv({key}):?query:",                 "target": "ProjectSrvObjectPage" },
-      { "pattern": "ProjectSrv({key})/MILESTONES({key2}):?query:", "target": "MilestoneSrvObjectPage" } ],
+    "config": { "routerClass": "sap.f.routing.Router",          // router of the flexible column layout
+                "flexibleColumnLayout": { "defaultTwoColumnLayoutType": "TwoColumnsMidExpanded",
+                                          "defaultThreeColumnLayoutType": "ThreeColumnsMidExpanded" } },   // details column gets more space
+    "routes": [                                  // URL pattern -> pages shown side by side
+      { "pattern": ":?query:",                     "target": ["ProjectSrvList"] },
+      { "pattern": "ProjectSrv({key}):?query:",    "target": ["ProjectSrvList", "ProjectSrvObjectPage"] },
+      { "pattern": "ProjectSrv({key})/MILESTONES({key2}):?query:",
+        "target": ["ProjectSrvList", "ProjectSrvObjectPage", "MilestoneSrvObjectPage"] } ],
     "targets": {
       "ProjectSrvList": { "name": "sap.fe.templates.ListReport",        // List Report template
+        "controlAggregation": "beginColumnPages", "contextPattern": "",  // left column
         "options": { "settings": { "contextPath": "/ProjectSrv", "variantManagement": "Page",
           "navigation": { "ProjectSrv": { "detail": { "route": "ProjectSrvObjectPage" } } },   // row click
           "controlConfiguration": { "@com.sap.vocabularies.UI.v1.LineItem":
               { "tableSettings": { "type": "ResponsiveTable", "selectionMode": "Multi" } } } } } },
       "ProjectSrvObjectPage":   { "name": "sap.fe.templates.ObjectPage", … "contextPath": "/ProjectSrv",
+          "controlAggregation": "midColumnPages", "contextPattern": "/ProjectSrv({key})",   // middle column
           "navigation": { "MILESTONES": { "detail": { "route": "MilestoneSrvObjectPage" } } } },
       "MilestoneSrvObjectPage": { "name": "sap.fe.templates.ObjectPage", … "contextPath": "/ProjectSrv/MILESTONES",
+          "controlAggregation": "endColumnPages",                                           // right column
+          "contextPattern": "/ProjectSrv({key})/MILESTONES({key2})",
           "controlConfiguration": { "TASKS/@com.sap.vocabularies.UI.v1.LineItem":
               { "tableSettings": { "creationMode": { "name": "Inline", "createAtEnd": true } } } } } }
-  }
+  },
+  "rootView": { "viewName": "sap.fe.templates.RootContainer.view.Fcl", "type": "XML", "async": true }
+                                                // flexible column layout: list and details side by side
 }
 ```
+`webapp/i18n/i18n.properties` has `appTitle`, `appDescription` and the launchpad title/subtitle of the inbound.
+
 Differences in the other apps:
 - **timesheets** – `Entries` table with inline creation (new rows directly in the table).
 - **approvals**, **timesheets** – `selectionMode: Multi` (bulk Approve / Submit).
@@ -596,7 +694,7 @@ Differences in the other apps:
 - **home** (Manager Home) – `contextPath: /ProjectAnalytics`; `views.paths` with `primary` = chart
   (`UI.PresentationVariant`) and `secondary` = table (`UI.LineItem`) → this makes it an **Analytical List Page**;
   `keyPerformanceIndicators`; Grid Table; outbound navigation `ProjectDetails` to `Project-manage`;
-  libs `sap.chart`, `sap.viz`, `sap.ui.table`.
+  libs `sap.chart`, `sap.viz`, `sap.ui.table`; no flexible column layout (one page only).
 - **settings**, **auditlog** – copies of the clients app with another entity.
 
 ### 10.3 `Component.js`
@@ -655,23 +753,33 @@ sap.ui.define(["sap/fe/core/AppComponent"], function (Component) {   // Fiori El
 "oauth2-configuration": { "redirect-uris": [ "https://*.applicationstudio.cloud.sap/**",
                                              "https://*.hana.ondemand.com/**", "http://localhost:5000/**" ] }
                                                 // where XSUAA may send the user back after login
+"authorities": ["$ACCEPT_GRANTED_AUTHORITIES"], // accept authorities granted by other apps (sample-project setting)
+"oauth2-configuration": { "token-validity": 9000, … }   // token lifetime in seconds
 ```
 Create the instance for hybrid tests: `cf create-service xsuaa application psa-hybrid-auth -c xs-security.json`.
 
-### 12.2 Approuter – `.deploy/app-router/`
-`package.json`: dependency `@sap/approuter`, `start` = `node node_modules/@sap/approuter/approuter.js`.
+### 12.2 Approuter – `app/`
+Like the sample project, the approuter lives directly in `app/` and serves the UI files itself.
 
-`xs-app.json`:
+`app/package.json`: name `app`, dependency `@sap/approuter`, `start` = `node node_modules/@sap/approuter/approuter.js`.
+
+`app/xs-app.json`:
 ```json
 "welcomeFile": "/index.html",                   // opening the URL shows the launchpad
 "authenticationMethod": "route",
+"sessionTimeout": 100,                          // minutes
 "logout": { "logoutEndpoint": "/do/logout", "logoutPage": "/" },
-"routes": [ { "source": "^/(.*)$",              // every path …
-              "target": "$1", "destination": "srv-api",          // … is forwarded to the CAP server
-              "authenticationType": "xsuaa",    // … after XSUAA login
-              "csrfProtection": true } ]
+"routes": [
+  { "source": "^/index.html$", "target": "index.html", "localDir": "./",
+    "authenticationType": "xsuaa" },            // the launchpad, from this folder
+  { "source": "^/projects/webapp/(.*)$", "target": "$1", "localDir": "projects/webapp/",
+    "authenticationType": "xsuaa" },            // one route per app: home, projects, … auditlog
+  …
+  { "source": "^/(.*)$", "target": "$1", "destination": "srv-api",   // everything else (/odata/…)
+    "authenticationType": "xsuaa", "csrfProtection": true } ]        // goes to the CAP server
 ```
-`default-env.json` (local/hybrid only): destination `srv-api` → `http://localhost:4004`, `forwardAuthToken: true`.
+`app/default-env.json` (local/hybrid only): destination `srv-api` → `http://localhost:4004`, `forwardAuthToken: true`.
+Locally `cds watch` serves the same `app/` files, so the URLs are the same with and without the approuter.
 
 ---
 
@@ -679,39 +787,31 @@ Create the instance for hybrid tests: `cf create-service xsuaa application psa-h
 
 ```yaml
 _schema-version: 3.3.0
-ID: psa-application                # name of the MTA -> mta_archives/psa-application_1.0.0.mtar
+ID: psa-application                # name of the MTA
 version: 1.0.0
-build-parameters:
-  before-all:                      # runs once before the modules are built
-    - builder: custom
-      commands:
-        - npm ci                   # install exactly package-lock.json
-        - npx cds build --production   # gen/srv (server) and gen/db (HANA artifacts)
-        - npm run build:apps       # copy the UI into gen/srv/app
 modules:
-  - name: psa-application-srv      # the CAP server
+  - name: psa-application-ui       # the approuter (app/) = public URL of the app
     type: nodejs
-    path: gen/srv
-    parameters: { memory: 512M, buildpack: nodejs_buildpack }
-    provides: [ { name: srv-api, properties: { srv-url: ${default-url} } } ]   # its URL for the approuter
-    requires: [ psa-application-db, psa-application-auth ]                     # bound HANA + XSUAA
-  - name: psa-application-db-deployer   # one-off task: creates the tables and loads the CSVs into HANA
-    type: hdb
-    path: gen/db
-    requires: [ psa-application-db ]
-  - name: psa-application          # the approuter = public URL of the app
-    type: approuter.nodejs
-    path: .deploy/app-router
+    path: app
     requires:
       - name: srv-api
         group: destinations        # becomes destination "srv-api" (used in xs-app.json)
-        properties: { name: srv-api, url: ~{srv-url}, forwardAuthToken: true }
+        properties: { name: srv-api, url: ~{srv-url}, forwardAuthToken: true, strictSSL: true }
       - name: psa-application-auth
     provides: [ { name: app-api, properties: { app-uri: ${default-uri} } } ]
+    parameters: { memory: 256M, buildpack: nodejs_buildpack }
+    build-parameters: { builder: npm-ci, ignore: ["node_modules/", "default-env.json"] }
+  - name: psa-application-srv      # the CAP server
+    type: nodejs
+    path: gen/srv
+    requires: [ psa-application-auth, psa-application-db ]                     # bound XSUAA + HANA
+    provides: [ { name: srv-api, properties: { srv-url: ${default-url} } } ]   # its URL for the approuter
+    parameters: { memory: 512M, buildpack: nodejs_buildpack }
+  - name: psa-application-db-deployer   # one-off task: creates tables + views and loads the CSVs into HANA
+    type: hdb
+    path: gen/db
+    requires: [ psa-application-db ]
 resources:
-  - name: psa-application-db       # HDI container in SAP HANA Cloud
-    type: com.sap.xs.hdi-container
-    parameters: { service: hana, service-plan: hdi-shared }
   - name: psa-application-auth     # XSUAA instance created from xs-security.json
     type: org.cloudfoundry.managed-service
     parameters:
@@ -722,6 +822,15 @@ resources:
         xsappname: psa-application-${org}-${space}    # unique per org/space
         role-collections: [ 'PSA_Admin (${org}-${space})', 'PSA_User (${org}-${space})' ]
         oauth2-configuration: { redirect-uris: [ https://*~{app-api/app-uri}/** ] }
+  - name: psa-application-db       # HDI container in SAP HANA Cloud
+    type: com.sap.xs.hdi-container
+    parameters: { service: hana, service-plan: hdi-shared }
+build-parameters:
+  before-all:                      # runs once before the modules are built
+    - builder: custom
+      commands:
+        - npm ci                   # install exactly package-lock.json
+        - npx cds build --production   # gen/srv (server) and gen/db (HANA artifacts)
 ```
 
 ---
@@ -736,10 +845,10 @@ credential `cf-credentials`. Used only when the CI/CD job reads its configuratio
 ## 15. `test/psa.test.js` – automated tests
 
 ```js
-import cds from '@sap/cds';
-import { describe, it } from 'node:test';            // Node's built-in test runner
-import assert from 'node:assert/strict';
-const { GET, POST, PATCH, DELETE } = cds.test(import.meta.dirname + '/..');   // starts the CAP server in-process
+const cds = require('@sap/cds');
+const { describe, it } = require('node:test');       // Node's built-in test runner
+const assert = require('node:assert/strict');
+const { GET, POST, PATCH, DELETE } = cds.test(__dirname + '/..');   // starts the CAP server in-process
 const ADMIN = { auth: { username: 'meera.iyer@psa-demo.com',   password: 'admin' } };   // mocked users
 const USER  = { auth: { username: 'rahul.sharma@psa-demo.com', password: 'user'  } };
 async function fails(request, status) { … }         // expects an HTTP error code
@@ -758,7 +867,8 @@ Run with `npm test`.
 
 ## 16. Run, deploy and give roles
 
-**Local tests:** `npm test`.
+**Local tests:** `npm test`. **Local app:** `npm run watch` → launchpad at `http://localhost:4004/index.html`
+(logins from chapter 2), or `npm run watch-<app>` for one app.
 
 **Hybrid in BAS (real HANA + XSUAA):**
 ```bash
@@ -767,14 +877,14 @@ cf create-service xsuaa application psa-hybrid-auth -c xs-security.json
 cds bind auth --to psa-hybrid-auth
 cds build --production && cds deploy --to hana && cds watch --profile hybrid
 # second terminal, project root:
-npm install --prefix .deploy/app-router
-cds bind --exec --profile hybrid -- npm start --prefix .deploy/app-router   # open port 5000
+npm install --prefix app
+cds bind --exec --profile hybrid -- npm start --prefix app   # open port 5000
 ```
 
 **Cloud Foundry:**
 ```bash
-mbt build
-cf deploy mta_archives/psa-application_1.0.0.mtar
+npm run build                      # mbt build -> mta_archives/archive.mtar
+npm run deploy                     # cf deploy mta_archives/archive.mtar
 ```
 Then, in the BTP cockpit, go to Security → Role Collections. Add users to **PSA_Admin (org-space)** or **PSA_User (org-space)**,
 with identity provider *Default identity provider*. Each user also needs an Employee with the same e-mail.
@@ -784,20 +894,20 @@ with identity provider *Default identity provider*. Each user also needs an Empl
 ## 17. Recreate-by-hand checklist
 
 1. `cds init`, install packages, write `package.json` (chapter 2).
-2. `db/common.cds` → `db/master.cds` → `db/schema.cds` → CSVs; check with `cds watch` (tables + data at `/odata/v4/…`).
-3. `srv/psa-service.cds` (start with projections only, add `@restrict` and calculated columns).
-4. `srv/psa-service.js`: helpers → roll-up → project validation → timesheet rules → actions → invoices → settings/audit.
-5. Generate the Fiori apps (chapter 10), then write `app/annotations.cds` app by app.
+2. `db/common.cds` → `db/schema.cds` (master + transaction) → `db/CDSView.cds` → `db/i18n` → CSVs; check with `cds watch` (tables + data at `/odata/v4/…`).
+3. `srv/service.cds` (start with projections only, add `@restrict` and calculated columns); try it with `srv/test.http`.
+4. `srv/service.js`: helpers → roll-up → project validation → timesheet rules → actions → invoices → settings/audit.
+5. Generate the Fiori apps (chapter 10), then write `app/<app>/annotations.cds` app by app and add each to `app/services.cds`.
 6. `app/index.html` launchpad.
-7. `xs-security.json`, approuter, hybrid test with real login.
-8. `mta.yaml`, `mbt build`, `cf deploy`, assign role collections.
+7. `xs-security.json`, approuter in `app/` (`package.json`, `xs-app.json`), hybrid test with real login.
+8. `mta.yaml`, `npm run build`, `npm run deploy`, assign role collections.
 9. `test/psa.test.js`; `.pipeline/config.yml` for CI/CD.
 
 **Common errors and fixes**
 | Error | Fix |
 |---|---|
 | HANA "incorrect syntax near =" | write `case when X = 'A' then …` (searched CASE), not `case X when 'A'` |
-| "no UAA service found" (approuter) | start it from the project root with `cds bind --exec … --prefix .deploy/app-router` |
+| "no UAA service found" (approuter) | start it from the project root with `cds bind --exec … --prefix app` |
 | Forbidden after login / token has only `openid` | assign the role collection for the identity provider you logged in with, log out and in |
 | App page is blank | full-height `<style>` in `index.html`, same SAPUI5 version everywhere |
 | KPI card empty | value must be an `Aggregation.CustomAggregate`; a currency/unit needs one too (`@Aggregation.default: #MAX`) |

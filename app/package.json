@@ -1,0 +1,15 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "description": "Approuter: XSUAA login, serves the launchpad and Fiori apps, forwards /odata to the CAP service",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  },
+  "dependencies": {
+    "@sap/approuter": "^23.0.0"
+  },
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  }
+}

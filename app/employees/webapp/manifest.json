@@ -3,10 +3,12 @@
   "sap.app": {
     "id": "psa.employees",
     "type": "application",
-    "title": "Employees",
+    "i18n": "i18n/i18n.properties",
     "applicationVersion": {
       "version": "1.0.0"
     },
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
     "dataSources": {
       "mainService": {
         "uri": "/odata/v4/psa/",
@@ -16,10 +18,32 @@
           "odataVersion": "4.0"
         }
       }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "Employee-manage": {
+          "semanticObject": "Employee",
+          "action": "manage",
+          "title": "{{Employee-manage.flpTitle}}",
+          "subTitle": "{{Employee-manage.flpSubtitle}}",
+          "signature": {
+            "parameters": {},
+            "additionalParameters": "allowed"
+          }
+        }
+      }
     }
   },
   "sap.ui": {
     "technology": "UI5",
+    "icons": {
+      "icon": "",
+      "favIcon": "",
+      "phone": "",
+      "phone@2": "",
+      "tablet": "",
+      "tablet@2": ""
+    },
     "deviceTypes": {
       "desktop": true,
       "tablet": true,
@@ -27,13 +51,14 @@
     }
   },
   "sap.ui5": {
-    "flexEnabled": false,
+    "flexEnabled": true,
     "dependencies": {
       "minUI5Version": "1.153.0",
       "libs": {
         "sap.m": {},
         "sap.ui.core": {},
-        "sap.fe.templates": {}
+        "sap.fe.templates": {},
+        "sap.f": {}
       }
     },
     "contentDensities": {
@@ -41,6 +66,16 @@
       "cozy": true
     },
     "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "psa.employees.i18n.i18n",
+          "supportedLocales": [
+            ""
+          ],
+          "fallbackLocale": ""
+        }
+      },
       "": {
         "dataSource": "mainService",
         "preload": true,
@@ -49,20 +84,44 @@
           "autoExpandSelect": true,
           "earlyRequests": true
         }
+      },
+      "@i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "uri": "i18n/i18n.properties",
+        "settings": {
+          "supportedLocales": [
+            ""
+          ],
+          "fallbackLocale": ""
+        }
       }
     },
+    "resources": {
+      "css": []
+    },
     "routing": {
-      "config": {},
+      "config": {
+        "flexibleColumnLayout": {
+          "defaultTwoColumnLayoutType": "TwoColumnsMidExpanded",
+          "defaultThreeColumnLayoutType": "ThreeColumnsMidExpanded"
+        },
+        "routerClass": "sap.f.routing.Router"
+      },
       "routes": [
         {
           "pattern": ":?query:",
           "name": "EmployeeSrvList",
-          "target": "EmployeeSrvList"
+          "target": [
+            "EmployeeSrvList"
+          ]
         },
         {
           "pattern": "EmployeeSrv({key}):?query:",
           "name": "EmployeeSrvObjectPage",
-          "target": "EmployeeSrvObjectPage"
+          "target": [
+            "EmployeeSrvList",
+            "EmployeeSrvObjectPage"
+          ]
         }
       ],
       "targets": {
@@ -92,7 +151,9 @@
                 }
               }
             }
-          }
+          },
+          "controlAggregation": "beginColumnPages",
+          "contextPattern": ""
         },
         "EmployeeSrvObjectPage": {
           "type": "Component",
@@ -105,9 +166,17 @@
               "navigation": {},
               "controlConfiguration": {}
             }
-          }
+          },
+          "controlAggregation": "midColumnPages",
+          "contextPattern": "/EmployeeSrv({key})"
         }
       }
+    },
+    "rootView": {
+      "viewName": "sap.fe.templates.RootContainer.view.Fcl",
+      "type": "XML",
+      "async": true,
+      "id": "appRootView"
     }
   },
   "sap.fiori": {

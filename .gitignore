@@ -1,15 +1,24 @@
 node_modules/
+target/
+_out/
 gen/
+
+.cdsrc-private.json
+default-*.json
+*.sqlite
+*.sqlite-*
+
+# approuter: local destination srv-api -> http://localhost:4004 (no secrets)
+!app/default-env.json
+
+# MTA
 mta_archives/
 *_mta_build_tmp
 *.mtar
-*.sqlite
-*.sqlite-*
-default-*.json
-.cdsrc-private.json
-.DS_Store
-@cds-models
+resources/
 
-# approuter: local destination for hybrid testing (no secrets)
-!.deploy/app-router/default-env.json
-.deploy/app-router/node_modules/
+# Other
+.DS_Store
+
+# @cap-js/cds-typer
+@cds-models

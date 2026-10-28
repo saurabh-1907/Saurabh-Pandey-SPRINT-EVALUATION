@@ -1,13 +1,13 @@
-import cds from '@sap/cds';
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+const cds = require('@sap/cds');
+const { describe, it } = require('node:test');
+const assert = require('node:assert/strict');
 
-const { GET, POST, PATCH, DELETE } = cds.test(import.meta.dirname + '/..');
+const { GET, POST, PATCH, DELETE } = cds.test(__dirname + '/..');
 const { UPDATE } = cds.ql;
 
 const S = '/odata/v4/psa';
 
-// test logins (package.json -> cds.requires.[test].auth); in BTP the login comes from XSUAA
+// test logins (package.json -> cds.requires.[development].auth); in BTP the login comes from XSUAA
 const ADMIN = { auth: { username: 'meera.iyer@psa-demo.com',   password: 'admin' } };   // Admin role
 const USER  = { auth: { username: 'rahul.sharma@psa-demo.com', password: 'user'  } };   // User role
 

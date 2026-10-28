@@ -3,10 +3,12 @@
   "sap.app": {
     "id": "psa.home",
     "type": "application",
-    "title": "Manager Home",
+    "i18n": "i18n/i18n.properties",
     "applicationVersion": {
       "version": "1.0.0"
     },
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
     "dataSources": {
       "mainService": {
         "uri": "/odata/v4/psa/",
@@ -18,6 +20,18 @@
       }
     },
     "crossNavigation": {
+      "inbounds": {
+        "Manager-home": {
+          "semanticObject": "Manager",
+          "action": "home",
+          "title": "{{Manager-home.flpTitle}}",
+          "subTitle": "{{Manager-home.flpSubtitle}}",
+          "signature": {
+            "parameters": {},
+            "additionalParameters": "allowed"
+          }
+        }
+      },
       "outbounds": {
         "ProjectDetails": {
           "semanticObject": "Project",
@@ -29,7 +43,14 @@
   },
   "sap.ui": {
     "technology": "UI5",
-    "fullWidth": true,
+    "icons": {
+      "icon": "",
+      "favIcon": "",
+      "phone": "",
+      "phone@2": "",
+      "tablet": "",
+      "tablet@2": ""
+    },
     "deviceTypes": {
       "desktop": true,
       "tablet": true,
@@ -37,7 +58,7 @@
     }
   },
   "sap.ui5": {
-    "flexEnabled": false,
+    "flexEnabled": true,
     "dependencies": {
       "minUI5Version": "1.153.0",
       "libs": {
@@ -54,6 +75,16 @@
       "cozy": true
     },
     "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "psa.home.i18n.i18n",
+          "supportedLocales": [
+            ""
+          ],
+          "fallbackLocale": ""
+        }
+      },
       "": {
         "dataSource": "mainService",
         "preload": true,
@@ -62,7 +93,20 @@
           "autoExpandSelect": true,
           "earlyRequests": true
         }
+      },
+      "@i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "uri": "i18n/i18n.properties",
+        "settings": {
+          "supportedLocales": [
+            ""
+          ],
+          "fallbackLocale": ""
+        }
       }
+    },
+    "resources": {
+      "css": []
     },
     "routing": {
       "config": {},

@@ -161,10 +161,12 @@ this to two XSUAA roles:**
 
 ## 5. Data model
 
-Follow the style of the reference project `saurabh-1907/SAP-Repository`:
-- Keys are `key NODE_KEY : common.Guid` and fields are UPPERCASE.
+Follow the skeleton of the sample project `SantoshSIJBS/SEP-22-2026-SKILLS-CAPJS`:
+- Keys are `key NODE_KEY : cmn.Guid` and fields are UPPERCASE.
 - An item points to its header with `PARENT`.
-- There are contexts `master` and `transaction`, and reusable types and aspects live in `db/common.cds`.
+- `db/schema.cds` holds both contexts `master` and `transaction`; reusable types and aspects live in `db/common.cds`;
+  read-only views live in `db/CDSView.cds` (`context CDSViews { define view … }`).
+- Every field has a label `@(title: '{i18n>KEY}')` from `db/i18n/i18n.properties` (+ `i18n_de`, `i18n_hi`).
 - CSV files are named `psa.db-master.<Entity>.csv` / `psa.db-transaction.<Entity>.csv`.
 - Service projections are named `<Entity>Srv`.
 
@@ -177,17 +179,17 @@ Follow the style of the reference project `saurabh-1907/SAP-Repository`:
   - `TimesheetStatus` (Draft, Submitted, Approved, Rejected, Invoiced)
   - `InvoiceStatus` (Draft, Issued, Paid)
 - Aspects:
-  - `Amount` (GROSS_AMOUNT, NET_AMOUNT, TAX_AMOUNT, CURRENCY : Currency)
-  - `Address` (STREET, POSTAL_CODE, CITY, COUNTRY, BUILDING)
+  - `Amount` (GROSS_AMOUNT, NET_AMOUNT, TAX_AMOUNT, CURRENCY : Currency), with i18n titles
+  - `Address` (STREET, POSTAL_CODE, CITY, COUNTRY, BUILDING), with i18n titles
 
-**`db/master.cds`**: namespace `psa.db`, `context master`, in its own file.
+**`db/schema.cds`**, namespace `psa.db`, part 1: `context master`.
 - **Clients** : `common.Address`, `managed` – NODE_KEY, CLIENT_NAME, CONTACT_PERSON, EMAIL, PHONE, INDUSTRY, STATUS (Active/Inactive/Prospect)
 - **Employees** : `cuid`, `managed` – nameFirst, nameLast, email, phoneNumber, jobTitle, joinDate, Currency_code,
   hourlyRate, isManager (default false), isActive (default true), manager (Association to Employees)
 
 - **Settings** : `managed` – key ID (= 1), ALERT_THRESHOLDS ('75,90,100'), AT_RISK_PERCENT (80), TAX_PERCENT (18), PAYMENT_DAYS (30)
 
-**`db/schema.cds`**: `context transaction`, every entity with the `managed` aspect.
+**`db/schema.cds`**, part 2: `context transaction`, every entity with the `managed` aspect.
 
 | Entity | Fields | Relations |
 |---|---|---|
@@ -200,7 +202,7 @@ Follow the style of the reference project `saurabh-1907/SAP-Repository`:
 | **Invoices** : `common.Amount` | INVOICE_NO, PERIOD_FROM, PERIOD_TO, INVOICE_DATE, DUE_DATE, PAYMENT_DATE, BILLABLE_HOURS, STATUS (Draft/Issued/Paid/Cancelled) | PROJECT; Entries (Association to many on INVOICE) |
 | **Alerts** | THRESHOLD, CONSUMED_PERCENT, MESSAGE | PROJECT, TASK |
 | **AuditLog** | TIMESTAMP, USER_ID, ACTION, ENTITY, ENTITY_KEY, DETAILS | – |
-| view **ProjectTimeEntries** | entry + task name + employee name + timesheet status + invoice no | PROJECT (via TASK.MILESTONE.PROJECT) |
+| view **CDSViews.ProjectTimeEntries** (`db/CDSView.cds`) | entry + task name + employee name + timesheet status + invoice no | PROJECT (via TASK.MILESTONE.PROJECT) |
 
 Simplifications compared with the FRD:
 - Manager is merged into Employees.
@@ -223,7 +225,7 @@ Simplifications compared with the FRD:
 
 ---
 
-## 6. Service layer (`srv/psa-service.cds`, `srv/psa-service.js`)
+## 6. Service layer (`srv/service.cds`, `srv/service.js` in CommonJS, `srv/test.http`)
 
 There is one service, `@requires: 'authenticated-user' service PSAService` at `/odata/v4/psa`.
 
@@ -270,7 +272,10 @@ Actions:
 
 ## 7. Fiori UI (FRD §9) – make it look good and follow SAP Fiori standards
 
-All annotations live in `app/annotations.cds`.
+Each app keeps its annotations in `app/<app>/annotations.cds` (starting with
+`using PSAService as service from '../../srv/service';`), and `app/services.cds` collects them with
+`using from './<app>/annotations';`. Field labels come from `db/i18n`; the app files only add labels for
+calculated fields or where a screen needs another text.
 
 **General rules**
 - Every entity gets `UI.HeaderInfo` with `TypeImageUrl` (an SAP icon), titles and descriptions.
@@ -285,7 +290,13 @@ All annotations live in `app/annotations.cds`.
   - `Common.SideEffects` so the page refreshes.
 - `UI.UpdateHidden` / `UI.DeleteHidden: IS_LOCKED` on timesheets.
 
-**Apps.** Each app lives in `app/<name>/webapp` with manifest.json, Component.js and index.html, in the reference style: SAPUI5 **1.153.0** from `https://sapui5.hana.ondemand.com/1.153.0/`, theme `sap_horizon`.
+**Apps.** Each app is a folder `app/<name>` like the SAP Fiori generator creates it in the sample project:
+`annotations.cds`, `package.json`, `ui5.yaml`, `eslint.config.mjs`, `README.md` and `webapp/` with manifest.json,
+Component.js, index.html and `i18n/i18n.properties`. SAPUI5 **1.153.0** from `https://sapui5.hana.ondemand.com/1.153.0/`, theme `sap_horizon`.
+Manifest: `"i18n"` and `"@i18n"` models, `"title": "{{appTitle}}"`, `crossNavigation.inbounds` with the app's intent,
+`flexEnabled: true`. List Report apps use the **flexible column layout** (`rootView`
+`sap.fe.templates.RootContainer.view.Fcl`, `routerClass` `sap.f.routing.Router`, route targets as arrays,
+`controlAggregation` `beginColumnPages` / `midColumnPages` / `endColumnPages`, default `TwoColumnsMidExpanded`).
 
 | Tile / App | Template | Key elements |
 |---|---|---|
@@ -317,31 +328,33 @@ All annotations live in `app/annotations.cds`.
 - Scopes `$XSAPPNAME.Admin` and `$XSAPPNAME.User`, role templates Admin and User, role collections `PSA_Admin` and `PSA_User`.
 - Redirect URIs: `https://*.applicationstudio.cloud.sap/**`, `https://*.hana.ondemand.com/**`, `http://localhost:5000/**`.
 
-**package.json**
-- `"type": "module"`, `engines.node >= 22`.
-- Dependencies: `@sap/cds ^10`, `@cap-js/hana`, `@sap/xssec`.
-- devDependencies: `@sap/cds-dk`, `@cap-js/sqlite`, `@cap-js/cds-test`.
-- `cds.requires`: `db: hana`, `auth: xsuaa`.
-- A `[test]` profile:
-  - in-memory SQLite,
-  - mocked users `meera.iyer@psa-demo.com` / `admin` (Admin) and `rahul.sharma@psa-demo.com` / `user` (User),
-  - all default CAP mock users disabled.
-- Scripts:
-  - `start: cds-serve`
-  - `test: CDS_ENV=test node --test test/psa.test.js`
-  - `build:apps` copies `app/index.html` and every app folder to `gen/srv/app`, so the CAP server serves the UI.
+- Also `authorities: ["$ACCEPT_GRANTED_AUTHORITIES"]`, `token-validity: 9000`, `xsenableasyncservice` (as in the sample project).
 
-**Approuter: `.deploy/app-router`**
-- `@sap/approuter`, Node ≥ 22.
-- `xs-app.json`: welcome file `/index.html`, logout endpoint `/do/logout`, one route `^/(.*)$` → destination `srv-api`, `authenticationType: xsuaa`, CSRF on.
-- `default-env.json`: `srv-api` → `http://localhost:4004`, for hybrid runs.
+**package.json** (CommonJS, no `"type": "module"`), `engines.node >= 22`.
+- Dependencies: `@sap/cds ^10`, `@cap-js/hana`, `@sap/xssec`.
+- devDependencies: `@sap/cds-dk`, `@cap-js/sqlite`, `@cap-js/cds-test`, `mbt`, `rimraf`.
+- `cds.requires`:
+  - `[development]`: mocked users `meera.iyer@psa-demo.com` / `admin` (Admin) and `rahul.sharma@psa-demo.com` / `user` (User), all default CAP mock users disabled (database: in-memory SQLite by default),
+  - `[hybrid]` and `[production]`: `db: hana`, `auth: xsuaa`.
+- `sapux`: the app folders.
+- Scripts (sample-project style):
+  - `start: cds-serve`, `watch: cds watch --open index.html`, `watch-<app>` per app
+  - `test: node --test test/psa.test.js`
+  - `build: rimraf resources mta_archives && mbt build --mtar archive`, `deploy: cf deploy mta_archives/archive.mtar --retries 1`, `undeploy: cf undeploy psa-application --delete-services --delete-service-keys --delete-service-brokers`
+
+**Approuter: directly in `app/`** (sample-project style)
+- `app/package.json` (name `app`, `@sap/approuter`, `start`), `app/package-lock.json`.
+- `app/xs-app.json`: welcome file `/index.html`, logout endpoint `/do/logout`, `sessionTimeout`; routes with
+  `localDir` for `^/index.html$` and `^/<app>/webapp/(.*)$` (the approuter serves the UI files), then
+  `^/(.*)$` → destination `srv-api`; all `authenticationType: xsuaa`, CSRF on.
+- `app/default-env.json`: `srv-api` → `http://localhost:4004`, for hybrid runs.
 
 **mta.yaml**, ID `psa-application`:
-- before-all: `npm ci`, `npx cds build --production`, `npm run build:apps`. Use npm scripts, because mbt custom commands run without a shell.
+- before-all: `npm ci`, `npx cds build --production`.
 - Modules:
+  - `psa-application-ui` (approuter, nodejs, path `app`, builder `npm-ci`, 256 MB, ignore `node_modules/` and `default-env.json`)
   - `psa-application-srv` (nodejs, `gen/srv`, 512 MB)
   - `psa-application-db-deployer` (hdb, `gen/db`, 256 MB)
-  - `psa-application` (approuter, `.deploy/app-router`, 256 MB, ignore `node_modules/` and `default-env.json`)
 - Resources:
   - `psa-application-db` (hdi-shared)
   - `psa-application-auth` (xsuaa application, `xsappname: psa-application-${org}-${space}`, role collections `PSA_Admin (${org}-${space})` and `PSA_User (${org}-${space})`, redirect URI of the approuter)
@@ -361,17 +374,17 @@ cds build --production
 cds deploy --to hana
 cds watch --profile hybrid
 # second terminal, from the PROJECT ROOT (the binding is in .cdsrc-private.json):
-npm install --prefix .deploy/app-router
-cds bind --exec --profile hybrid -- npm start --prefix .deploy/app-router
+npm install --prefix app
+cds bind --exec --profile hybrid -- npm start --prefix app
 ```
 Open port **5000** to reach the XSUAA login and then the launchpad. Assign `PSA_Admin` / `PSA_User` in
 *Security → Users*. BAS port URLs work only in a browser that is logged in to BAS.
 
 **Cloud Foundry (public URL)**
 ```bash
-mbt build
-cf deploy mta_archives/psa-application_1.0.0.mtar
-cf apps   # URL of "psa-application" = the public link
+npm run build    # mbt build -> mta_archives/archive.mtar
+npm run deploy   # cf deploy
+cf apps          # URL of "psa-application-ui" = the public link
 ```
 Then, in the cockpit, go to *Security → Role Collections* and add users to **`PSA_Admin (org-space)`** /
 **`PSA_User (org-space)`** with the **Default identity provider**. The role collections are tied to the
@@ -437,7 +450,7 @@ Write automated tests (≥ 38) that cover:
 
 - [ ] `npm test` passes.
 - [ ] `cds build --production`, `cds deploy --to hana` and `cds watch --profile hybrid` work.
-- [ ] `mbt build` + `cf deploy` work, and the public URL leads to the SAP login and then the launchpad.
+- [ ] `npm run build` + `npm run deploy` work, and the public URL leads to the SAP login and then the launchpad.
 - [ ] Admin starts on the Manager Home (ALP), User starts on My Timesheets. No *Sample Applications*, no Forbidden pages, no hand-written views or CSS.
 - [ ] Manager Home shows the KPI cards *Active Projects, At-Risk Budgets, Pending Approvals*, the budget chart and table with drill-down; Billing Workbench shows *Unbilled Hours, Draft Invoices, Overdue Amount*.
 - [ ] End-to-end flow works in the browser:
