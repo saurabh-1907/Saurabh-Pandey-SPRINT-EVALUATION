@@ -82,8 +82,17 @@ Legend: ✅ implemented · 🟡 implemented in a simplified way · ⬜ out of sc
 | *extra* | Alerts, Settings, AuditLog | |
 | managed aspect | ✅ | created/changed by/at on all entities |
 
-## 7. Not built (needs paid services or external systems)
+## 7. Delivery and testing (FRD §14, §15, NFR-006, PPT slide 14)
+
+| Item | Status | Where |
+|---|---|---|
+| MTA with db, srv, app modules (`mbt build`, `cf deploy`) | ✅ | `mta.yaml`: `psa-application-db-deployer`, `psa-application-srv`, approuter `psa-application` |
+| CI/CD pipeline (NFR-006) | 🟡 | `.pipeline/config.yml` for SAP Continuous Integration and Delivery: build + `npm test` on every push; deploy step ready, off until org/space are set. One space instead of DEV / QAS / PROD |
+| Unit tests (service logic, roll-up, validations) | ✅ | `test/psa.test.js` – 41 tests with `@cap-js/cds-test` (instead of Jest) |
+| UI tests | 🟡 | checked manually in the browser, no automated UI tests |
+
+## 8. Not built (needs paid services or external systems)
 
 Integrations INT-01…05 (HR, S/4HANA finance, tracker API, Document Information Management PDFs,
-Alert Notification / e-mail), Destination service, Work Zone, nightly jobs, CI/CD pipeline, NFR load tests.
+Alert Notification / e-mail), Destination service, Work Zone, nightly jobs, NFR load tests.
 The free tier provides SAP HANA Cloud, XSUAA and Cloud Foundry, which the project uses.
