@@ -16,17 +16,17 @@
   },
   "scripts": {
     "start": "cds-serve",
-    "watch": "cds watch --open index.html",
-    "watch-home": "cds watch --open home/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "watch-projects": "cds watch --open projects/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "watch-timesheets": "cds watch --open timesheets/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "watch-approvals": "cds watch --open approvals/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "watch-invoices": "cds watch --open invoices/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "watch-clients": "cds watch --open clients/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "watch-employees": "cds watch --open employees/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "watch-settings": "cds watch --open settings/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "watch-auditlog": "cds watch --open auditlog/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
-    "test": "node --test test/psa.test.js",
+    "watch": "cds watch --profile test --open index.html",
+    "watch-home": "cds watch --profile test --open home/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-projects": "cds watch --profile test --open projects/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-timesheets": "cds watch --profile test --open timesheets/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-approvals": "cds watch --profile test --open approvals/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-invoices": "cds watch --profile test --open invoices/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-clients": "cds watch --profile test --open clients/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-employees": "cds watch --profile test --open employees/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-settings": "cds watch --profile test --open settings/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-auditlog": "cds watch --profile test --open auditlog/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "test": "CDS_ENV=test node --test test/psa.test.js",
     "build": "rimraf resources mta_archives && mbt build --mtar archive",
     "deploy": "cf deploy mta_archives/archive.mtar --retries 1",
     "undeploy": "cf undeploy psa-application --delete-services --delete-service-keys --delete-service-brokers"
@@ -44,7 +44,15 @@
   ],
   "cds": {
     "requires": {
-      "[development]": {
+      "db": "hana",
+      "auth": "xsuaa",
+      "[test]": {
+        "db": {
+          "kind": "sqlite",
+          "credentials": {
+            "url": ":memory:"
+          }
+        },
         "auth": {
           "kind": "mocked",
           "users": {
@@ -71,14 +79,6 @@
             "*": false
           }
         }
-      },
-      "[hybrid]": {
-        "db": "hana",
-        "auth": "xsuaa"
-      },
-      "[production]": {
-        "db": "hana",
-        "auth": "xsuaa"
       }
     }
   },

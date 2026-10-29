@@ -328,18 +328,17 @@ Manifest: `"i18n"` and `"@i18n"` models, `"title": "{{appTitle}}"`, `crossNaviga
 - Scopes `$XSAPPNAME.Admin` and `$XSAPPNAME.User`, role templates Admin and User, role collections `PSA_Admin` and `PSA_User`.
 - Redirect URIs: `https://*.applicationstudio.cloud.sap/**`, `https://*.hana.ondemand.com/**`, `http://localhost:5000/**`.
 
-- Also `authorities: ["$ACCEPT_GRANTED_AUTHORITIES"]`, `token-validity: 9000`, `xsenableasyncservice` (as in the sample project).
 
 **package.json** (CommonJS, no `"type": "module"`), `engines.node >= 22`.
 - Dependencies: `@sap/cds ^10`, `@cap-js/hana`, `@sap/xssec`.
 - devDependencies: `@sap/cds-dk`, `@cap-js/sqlite`, `@cap-js/cds-test`, `mbt`, `rimraf`.
 - `cds.requires`:
-  - `[development]`: mocked users `meera.iyer@psa-demo.com` / `admin` (Admin) and `rahul.sharma@psa-demo.com` / `user` (User), all default CAP mock users disabled (database: in-memory SQLite by default),
-  - `[hybrid]` and `[production]`: `db: hana`, `auth: xsuaa`.
+  - `db: hana`, `auth: xsuaa` **always** (not only in a `[production]` profile: the deployed server must never fall back to SQLite / mocked users),
+  - `[test]`: in-memory SQLite and mocked users `meera.iyer@psa-demo.com` / `admin` (Admin) and `rahul.sharma@psa-demo.com` / `user` (User), all default CAP mock users disabled.
 - `sapux`: the app folders.
 - Scripts (sample-project style):
-  - `start: cds-serve`, `watch: cds watch --open index.html`, `watch-<app>` per app
-  - `test: node --test test/psa.test.js`
+  - `start: cds-serve`, `watch: cds watch --profile test --open index.html`, `watch-<app>` per app
+  - `test: CDS_ENV=test node --test test/psa.test.js`
   - `build: rimraf resources mta_archives && mbt build --mtar archive`, `deploy: cf deploy mta_archives/archive.mtar --retries 1`, `undeploy: cf undeploy psa-application --delete-services --delete-service-keys --delete-service-brokers`
 
 **Approuter: directly in `app/`** (sample-project style)
@@ -352,7 +351,7 @@ Manifest: `"i18n"` and `"@i18n"` models, `"title": "{{appTitle}}"`, `crossNaviga
 **mta.yaml**, ID `psa-application`:
 - before-all: `npm ci`, `npx cds build --production`.
 - Modules:
-  - `psa-application-ui` (approuter, nodejs, path `app`, builder `npm-ci`, 256 MB, ignore `node_modules/` and `default-env.json`)
+  - `psa-application` (approuter, nodejs, path `app`, builder `npm-ci`, 256 MB, ignore `node_modules/` and `default-env.json`)
   - `psa-application-srv` (nodejs, `gen/srv`, 512 MB)
   - `psa-application-db-deployer` (hdb, `gen/db`, 256 MB)
 - Resources:
@@ -384,7 +383,7 @@ Open port **5000** to reach the XSUAA login and then the launchpad. Assign `PSA_
 ```bash
 npm run build    # mbt build -> mta_archives/archive.mtar
 npm run deploy   # cf deploy
-cf apps          # URL of "psa-application-ui" = the public link
+cf apps          # URL of "psa-application" = the public link
 ```
 Then, in the cockpit, go to *Security → Role Collections* and add users to **`PSA_Admin (org-space)`** /
 **`PSA_User (org-space)`** with the **Default identity provider**. The role collections are tied to the

@@ -1,5 +1,5 @@
 ### Requests against the local CAP server: npm run watch (http://localhost:4004)
-### Logins (mocked, package.json -> cds.requires.[development].auth):
+### Logins (mocked, package.json -> cds.requires.[test].auth):
 ###   Admin: meera.iyer@psa-demo.com / admin      User: rahul.sharma@psa-demo.com / user
 ### Active records of draft entities are addressed with IsActiveEntity=true
 

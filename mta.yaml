@@ -4,7 +4,8 @@ description: "Professional Services Automation (PSA) - SAP CAP Node.js"
 version: 1.0.0
 modules:
 # Approuter (app/): XSUAA login, serves app/index.html (launchpad) and app/<app>/webapp, forwards /odata to srv-api
-- name: psa-application-ui
+# (module name = app name in Cloud Foundry = public URL ...-psa-application...)
+- name: psa-application
   type: nodejs
   path: app
   requires:
@@ -26,6 +27,7 @@ modules:
     instances: 1
     memory: 256M
     disk-quota: 512M
+    keep-existing-routes: true
   build-parameters:
     builder: npm-ci
     ignore: ["node_modules/", "default-env.json"]

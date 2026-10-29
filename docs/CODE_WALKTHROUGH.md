@@ -82,10 +82,10 @@ npm i -D mbt rimraf                      # dev: MTA build tool, clean-up of old 
   },
   "scripts": {
     "start": "cds-serve",                     // how Cloud Foundry starts the server
-    "watch": "cds watch --open index.html",   // local development with auto-restart, opens the launchpad
-    "watch-projects": "cds watch --open projects/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch": "cds watch --profile test --open index.html",   // local run (SQLite + mocked logins), opens the launchpad
+    "watch-projects": "cds watch --profile test --open projects/webapp/index.html?sap-ui-xx-viewCache=false --livereload false",
                                               // one script per app: watch-home, watch-timesheets, … watch-auditlog
-    "test": "node --test test/psa.test.js",   // run the tests (development profile: SQLite + mocked users)
+    "test": "CDS_ENV=test node --test test/psa.test.js",   // run the tests with the [test] profile
     "build": "rimraf resources mta_archives && mbt build --mtar archive",   // -> mta_archives/archive.mtar
     "deploy": "cf deploy mta_archives/archive.mtar --retries 1",
     "undeploy": "cf undeploy psa-application --delete-services --delete-service-keys --delete-service-brokers"
@@ -93,8 +93,11 @@ npm i -D mbt rimraf                      # dev: MTA build tool, clean-up of old 
   "sapux": [ "app/home", "app/projects", … "app/auditlog" ],   // tells SAP Fiori tools in BAS where the apps are
   "cds": {
     "requires": {
-      "[development]": {                      // local runs (cds watch) and npm test
-        "auth": {                             // the database is SQLite in memory by default
+      "db":   "hana",                         // SAP HANA Cloud - always (deployed server never falls back)
+      "auth": "xsuaa",                        // XSUAA login - always
+      "[test]": {                             // local runs (cds watch --profile test) and npm test
+        "db":   { "kind": "sqlite", "credentials": { "url": ":memory:" } },
+        "auth": {
           "kind": "mocked",                   // fake logins (basic auth)
           "users": {
             "meera.iyer@psa-demo.com":   { "password": "admin", "roles": ["Admin"] },
@@ -102,9 +105,7 @@ npm i -D mbt rimraf                      # dev: MTA build tool, clean-up of old 
             "alice": false, "bob": false, …, "*": false   // switch off CAP's default demo users
           }
         }
-      },
-      "[hybrid]":     { "db": "hana", "auth": "xsuaa" },   // cds watch --profile hybrid (BAS + real BTP services)
-      "[production]": { "db": "hana", "auth": "xsuaa" }    // Cloud Foundry
+      }
     }
   },
   "engines": { "node": ">=22" }              // Node version for Cloud Foundry / BAS
@@ -753,8 +754,6 @@ sap.ui.define(["sap/fe/core/AppComponent"], function (Component) {   // Fiori El
 "oauth2-configuration": { "redirect-uris": [ "https://*.applicationstudio.cloud.sap/**",
                                              "https://*.hana.ondemand.com/**", "http://localhost:5000/**" ] }
                                                 // where XSUAA may send the user back after login
-"authorities": ["$ACCEPT_GRANTED_AUTHORITIES"], // accept authorities granted by other apps (sample-project setting)
-"oauth2-configuration": { "token-validity": 9000, … }   // token lifetime in seconds
 ```
 Create the instance for hybrid tests: `cf create-service xsuaa application psa-hybrid-auth -c xs-security.json`.
 
@@ -790,7 +789,7 @@ _schema-version: 3.3.0
 ID: psa-application                # name of the MTA
 version: 1.0.0
 modules:
-  - name: psa-application-ui       # the approuter (app/) = public URL of the app
+  - name: psa-application          # the approuter (app/) = public URL of the app
     type: nodejs
     path: app
     requires:

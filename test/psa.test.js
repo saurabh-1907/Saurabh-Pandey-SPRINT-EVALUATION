@@ -7,7 +7,7 @@ const { UPDATE } = cds.ql;
 
 const S = '/odata/v4/psa';
 
-// test logins (package.json -> cds.requires.[development].auth); in BTP the login comes from XSUAA
+// test logins (package.json -> cds.requires.[test].auth); in BTP the login comes from XSUAA
 const ADMIN = { auth: { username: 'meera.iyer@psa-demo.com',   password: 'admin' } };   // Admin role
 const USER  = { auth: { username: 'rahul.sharma@psa-demo.com', password: 'user'  } };   // User role
 

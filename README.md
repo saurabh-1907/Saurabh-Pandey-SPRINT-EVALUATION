@@ -135,7 +135,7 @@ srv/
   test.http              sample requests (REST Client)
 test/psa.test.js         42 automated tests (npm test)
 xs-security.json         XSUAA roles + role collections PSA_Admin / PSA_User
-mta.yaml                 Cloud Foundry deployment: psa-application-ui, -srv, -db-deployer
+mta.yaml                 Cloud Foundry deployment: psa-application (approuter), -srv, -db-deployer
 .pipeline/config.yml     SAP Continuous Integration and Delivery
 docs/                    FRD traceability, code walkthrough, requirements
 ```
@@ -148,7 +148,7 @@ npm run watch            # http://localhost:4004/index.html - launchpad
 npm run watch-projects   # one app: watch-home, watch-timesheets, watch-approvals, ... watch-auditlog
 ```
 
-Local logins (mocked, `package.json` → `cds.requires.[development]`):
+Local logins (mocked, `package.json` → `cds.requires.[test]`):
 **meera.iyer@psa-demo.com / admin** (Admin) and **rahul.sharma@psa-demo.com / user** (User).
 Data is in memory and reset on every restart. Sample requests: `srv/test.http`.
 
@@ -222,11 +222,11 @@ npm run deploy                             # cf deploy mta_archives/archive.mtar
 
 `cf deploy` creates/updates: the HDI container `psa-application-db` (`hdi-shared`), the XSUAA instance
 `psa-application-auth` (plan `application`), the CAP server `psa-application-srv` (512 MB),
-the approuter `psa-application-ui` (256 MB, serves the launchpad and apps from `app/`) and deploys tables + sample data.
+the approuter `psa-application` (256 MB, serves the launchpad and apps from `app/`) and deploys tables + sample data.
 
 **After the deployment**
 
-1. `cf apps` → copy the URL of **psa-application-ui** (the approuter) – this is the public link of the app.
+1. `cf apps` → copy the URL of **psa-application** (the approuter) – this is the public link of the app.
 2. BTP cockpit → Subaccount → Security → **Role Collections**:
    - **PSA_Admin (org-space)** → add admin users
    - **PSA_User (org-space)** → add employees
